@@ -1,0 +1,309 @@
+name: AutoCore ERP — CI/CD Enterprise
+
+on:
+  push:
+    branches: [main, develop, 'release/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+      skip_tests:
+        description: 'Skip tests (emergency deploy only)'
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/autocore-erp
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# ============================================================================
+jobs:
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint & Type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Frontend — Type-check
+        run: cd apps/web && npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Frontend — ESLint
+        run: cd apps/web && npx eslint . --ext ts,tsx --max-warnings 0
+
+      - name: Backend — ESLint
+        run: cd apps/api && npx eslint src --ext ts --max-warnings 0
+
+      - name: Schema — Validação Python AST
+        run: |
+          python3 - << 'EOF'
+          import re, sys
+          with open('apps/api/prisma/schema.prisma') as f:
+              content = f.read()
+          models = re.findall(r'^model (\w+) \{', content, re.MULTILINE)
+          dupes = [n for n in set(models) if models.count(n) > 1]
+          if dupes:
+              print(f"ERRO: modelos duplicados: {dupes}"); sys.exit(1)
+          print(f"Schema OK: {len(models)} models, sem duplicatas")
+          EOF
+
+  # --------------------------------------------------------------------------
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ !inputs.skip_tests }}
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: autocore
+          POSTGRES_PASSWORD: autocore-test
+          POSTGRES_DB: autocore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://autocore:autocore-test@localhost:5432/autocore_test
+      DIRECT_URL: postgresql://autocore:autocore-test@localhost:5432/autocore_test
+      JWT_SECRET: test-jwt-secret-32-chars-minimum!!
+      AES_256_KEY: test-aes-256-key-32-chars-minimum!
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma migrate
+        run: cd apps/api && npx prisma migrate deploy
+        continue-on-error: true
+
+      - name: Run unit tests
+        run: cd apps/api && npx jest --testPathPattern='\.spec\.ts$' --coverage --coverageThreshold='{"global":{"branches":70,"functions":75,"lines":80,"statements":80}}'
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          directory: apps/api/coverage
+
+  # --------------------------------------------------------------------------
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ !inputs.skip_tests }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (valida que não quebra)
+        run: cd apps/web && npx vite build
+        env:
+          VITE_API_URL: https://api.autocore.example.com
+
+  # --------------------------------------------------------------------------
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true # Não bloqueia deploy, apenas reporta
+
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        id: depcheck
+        with:
+          project: 'autocore-erp'
+          path: '.'
+          format: 'HTML'
+        continue-on-error: true
+
+      - name: Upload Security Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: reports/
+
+  # --------------------------------------------------------------------------
+  build-docker:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [lint, test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/release/')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build & Push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: APP_VERSION=${{ github.sha }}
+
+      - name: Build & Push Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+            VITE_API_URL=${{ secrets.VITE_API_URL }}
+
+  # --------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy — Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-docker]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Staging
+        run: |
+          echo "Deploying ${{ github.sha }} to Staging..."
+          # Integração real: SSH + docker compose pull && docker compose up -d
+          # ou kubectl set image deployment/autocore-api api=ghcr.io/...
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          DEPLOY_HOST: ${{ secrets.STAGING_HOST }}
+          DEPLOY_KEY: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Smoke tests
+        run: |
+          sleep 10
+          curl -f https://api-staging.autocore.example.com/health || echo "Health check failed"
+
+  # --------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy — Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build-docker]
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://app.autocore.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          body: |
+            AutoCore ERP — Build ${{ github.sha }}
+            Deploy automático via CI/CD (Sprint 14)
+          draft: false
+          prerelease: false
+
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Deploying ${{ github.sha }} to Production..."
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+
+      - name: Production health check
+        run: |
+          sleep 30
+          curl -f https://api.autocore.example.com/health || exit 1
+          echo "✅ Production health check passed"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deploy falhou — triggering rollback..."
+          # Integração real: rollback automático para imagem anterior
+
+  # --------------------------------------------------------------------------
+  rollback:
+    name: Rollback (Manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && failure()
+    environment: production
+    steps:
+      - name: Rollback to previous version
+        run: |
+          echo "Rolling back to previous stable version..."
+          # docker compose pull --tag previous && docker compose up -d

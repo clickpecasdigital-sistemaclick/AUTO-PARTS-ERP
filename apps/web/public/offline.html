@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Você está offline — AutoCore ERP</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        min-height: 100vh;
+        align-items: center;
+        justify-content: center;
+        background: #f4f6f8;
+        font-family: Inter, system-ui, sans-serif;
+        color: #16171a;
+      }
+      .card { text-align: center; padding: 2rem; max-width: 360px; }
+      .icon { font-size: 2.5rem; margin-bottom: 1rem; }
+      h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+      p { color: #5c616b; font-size: 0.9rem; margin: 0 0 1.5rem; }
+      button {
+        background: #f2730f;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.625rem 1.25rem;
+        font-size: 0.875rem;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="icon">📡</div>
+      <h1>Sem conexão com a internet</h1>
+      <p>Esta página ainda não foi carregada antes e não está disponível offline. Verifique sua rede e tente novamente.</p>
+      <button onclick="window.location.reload()">Tentar novamente</button>
+    </div>
+  </body>
+</html>

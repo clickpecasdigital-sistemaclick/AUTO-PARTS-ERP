@@ -1,0 +1,104 @@
+{
+  "name": "autocore-erp-desktop",
+  "version": "1.0.0",
+  "description": "AutoCore ERP — Versão Desktop para Windows",
+  "main": "src/main.js",
+  "author": {
+    "name": "AutoCore",
+    "email": "contato@autocore.com"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:api": "cd ../api && npm run start:dev",
+    "dev:web": "cd ../web && npm run dev",
+    "build": "npm run build:api && npm run build:web && electron-builder",
+    "build:api": "cd ../api && npm install && npm run build",
+    "build:web": "cd ../web && npm install && npm run build",
+    "dist:win": "electron-builder --win --x64",
+    "dist:win32": "electron-builder --win --ia32",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "electron-log": "^5.1.2",
+    "electron-updater": "^6.1.8"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^30.0.1",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.autocore.erp",
+    "productName": "AutoCore ERP",
+    "copyright": "Copyright © 2026 AutoCore",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../api/dist",
+        "to": "api",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../api/node_modules",
+        "to": "api/node_modules",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../api/prisma",
+        "to": "api/prisma",
+        "filter": ["schema.prisma", "migrations/**"]
+      },
+      {
+        "from": "../web/dist",
+        "to": "web",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64", "ia32"] },
+        { "target": "msi", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico",
+      "publisherName": "AutoCore Tecnologia",
+      "verifyUpdateCodeSignature": false,
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AutoCore ERP",
+      "include": "assets/installer.nsh",
+      "license": "assets/license.txt",
+      "language": "1046",
+      "menuCategory": "AutoCore",
+      "displayLanguageSelector": false,
+      "installerLanguages": ["pt_BR"]
+    },
+    "msi": {
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  }
+}

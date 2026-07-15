@@ -1,0 +1,36 @@
+CONTRATO DE LICENÇA DE USO DE SOFTWARE
+AutoCore ERP — Versão Desktop
+
+Copyright © 2026 AutoCore Tecnologia. Todos os direitos reservados.
+
+Ao instalar ou usar este software, você concorda com os termos abaixo:
+
+1. LICENÇA DE USO
+   Este software é licenciado, não vendido. Você recebe uma licença
+   limitada, não exclusiva e intransferível para usar o AutoCore ERP
+   de acordo com os termos deste contrato e do plano contratado.
+
+2. RESTRIÇÕES
+   Você não pode:
+   a) Copiar ou distribuir o software sem autorização
+   b) Fazer engenharia reversa ou descompilar
+   c) Sublicenciar ou revender o software
+
+3. DADOS E PRIVACIDADE
+   O software pode coletar dados de uso (com seu consentimento) para
+   melhorar o produto. Nenhum dado financeiro ou pessoal é enviado sem
+   sua autorização explícita.
+
+4. ISENÇÃO DE GARANTIA
+   O software é fornecido "no estado em que se encontra". Não garantimos
+   que seja livre de erros ou adequado para fins específicos.
+
+5. SUPORTE
+   O suporte técnico está disponível de acordo com o plano contratado.
+   Acesse: https://autocore.com/suporte
+
+6. RESCISÃO
+   Esta licença é rescindida automaticamente se você violar qualquer
+   termo deste contrato.
+
+Para dúvidas: juridico@autocore.com

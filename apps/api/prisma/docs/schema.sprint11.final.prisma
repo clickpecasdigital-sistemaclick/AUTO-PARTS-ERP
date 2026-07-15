@@ -1,0 +1,4633 @@
+// =============================================================================
+// AUTOCORE ERP — SCHEMA DE BANCO DE DADOS (SPRINT 02 — ENGENHARIA DEFINITIVA)
+// =============================================================================
+//
+// Documentação completa do modelo (diagrama textual, estratégias de migration,
+// seed, backup, performance e escala) em: apps/api/prisma/docs/DATABASE.md
+//
+// CONVENÇÕES GLOBAIS
+// -------------------
+// • PK: UUID (uuid v4), coluna `id`, tipo nativo Postgres `uuid`.
+// • Soft delete: `deletedAt` (DateTime?) em toda tabela transacional/cadastral.
+//   Nenhum DELETE físico nessas tabelas — apenas catálogos 100% imutáveis
+//   (ex: Ncm, Cfop) usam delete físico administrativo.
+// • Auditoria de escrita: `createdAt`, `updatedAt` (sempre) e `createdBy`,
+//   `updatedBy` (UUID do usuário, coluna escalar — ver docs/DATABASE.md,
+//   seção "Estratégia de Auditoria de Coluna" para o racional de não
+//   modelar `createdBy/updatedBy` como relação Prisma em toda tabela).
+// • Isolamento multi-tenant: `tenantId` em toda tabela que não seja catálogo
+//   global; `companyId` quando o dado pertence a uma empresa (CNPJ) do
+//   tenant; `branchId` quando o dado é operacional de uma filial específica.
+//   Catálogos GLOBAIS (Ncm, Cfop, Cst, Csosn, Cest, VehicleMake/Model/Version,
+//   Engine, FuelType, Unit, Permission) não possuem tenantId — são
+//   referência compartilhada entre todos os tenants da plataforma.
+// • Todo campo usado em filtro/busca recorrente possui `@@index`.
+// • Dinheiro: `Decimal` com precisão `(15,2)`. Quantidades/percentuais com
+//   `(15,4)` para suportar fracionamento (peças vendidas por metro, litro etc.
+//   e alíquotas fiscais com 2-4 casas decimais).
+//
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================================================
+// SEÇÃO 1 — TENANCY, EMPRESAS, FILIAIS, SEGURANÇA (RBAC) E AUDITORIA
+// =============================================================================
+
+enum UserRole {
+  super_admin
+  admin
+  manager
+  operator
+  viewer
+}
+
+enum TenantPlan {
+  trial
+  starter
+  professional
+  enterprise
+}
+
+enum TenantStatus {
+  active
+  suspended
+  cancelled
+}
+
+/// Conta SaaS raiz. Um Tenant pode operar múltiplas Empresas (CNPJs distintos),
+/// cada uma com múltiplas Filiais. Todo isolamento de dados parte deste id.
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  document  String       @unique // CNPJ da conta contratante (holding/matriz comercial do SaaS)
+  plan      TenantPlan   @default(trial)
+  status    TenantStatus @default(active)
+  isActive  Boolean      @default(true) @map("is_active")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  deletedAt DateTime?    @map("deleted_at")
+
+  companies Company[]
+  branches  Branch[]
+  users     User[]
+  profiles  Profile[]
+  auditLogs AuditLog[]
+  systemLogs SystemLog[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+enum CompanyTaxRegime {
+  simples_nacional
+  lucro_presumido
+  lucro_real
+  mei
+}
+
+enum CostingMethod {
+  fifo          // PEPS — Primeiro que Entra, Primeiro que Sai
+  lifo          // UEPS — estrutura preparada; pouco usual no Brasil (vedado p/ fins fiscais), mantido para mercados onde é permitido
+  average       // Custo Médio Ponderado — método padrão/default
+  last_cost     // Último Custo
+}
+
+/// Empresa (pessoa jurídica/CNPJ) pertencente a um Tenant. Suporta operação
+/// "multiempresa": o mesmo Tenant pode ter várias razões sociais.
+model Company {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  legalName       String           @map("legal_name") // Razão Social
+  tradeName       String?          @map("trade_name") // Nome Fantasia
+  document        String           @unique // CNPJ
+  stateRegistration String?        @map("state_registration") // Inscrição Estadual
+  municipalRegistration String?    @map("municipal_registration")
+  taxRegime       CompanyTaxRegime @default(simples_nacional) @map("tax_regime")
+  costingMethod   CostingMethod    @default(average) @map("costing_method")
+  baseCurrency    String           @default("BRL") @map("base_currency") // estrutura multi-moeda — sem conversão automática nesta sprint
+  email           String?
+  phone           String?
+  zipCode         String?          @map("zip_code")
+  street          String?
+  number          String?
+  complement      String?
+  neighborhood    String?
+  city            String?
+  state           String?          @db.Char(2)
+  country         String           @default("BR")
+  logoUrl         String?          @map("logo_url")
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+  createdBy       String?          @map("created_by") @db.Uuid
+  updatedBy       String?          @map("updated_by") @db.Uuid
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branches Branch[]
+  customers Customer[]
+  suppliers Supplier[]
+  employees Employee[]
+  carriers  Carrier[]
+  chartOfAccounts ChartOfAccount[]
+  bankAccounts    BankAccount[]
+  costCenters     CostCenter[]
+  financialProjections FinancialProjection[]
+  accountsPayable    AccountsPayable[]
+  accountsReceivable AccountsReceivable[]
+
+  @@index([tenantId])
+  @@index([document])
+  @@map("companies")
+}
+
+enum BranchType {
+  matriz
+  filial
+  deposito_avancado
+}
+
+/// Filial/unidade operacional de uma Empresa. Vendas, estoque, caixa e
+/// numeração fiscal são sempre amarrados a uma Branch.
+model Branch {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  companyId    String     @map("company_id") @db.Uuid
+  code         String // código curto interno (ex: "001", "MATRIZ")
+  name         String
+  type         BranchType @default(filial)
+  document     String?    // CNPJ próprio da filial, se distinto da matriz
+  stateRegistration String? @map("state_registration")
+  email        String?
+  phone        String?
+  zipCode      String?    @map("zip_code")
+  street       String?
+  number       String?
+  complement   String?
+  neighborhood String?
+  city         String?
+  state        String?    @db.Char(2)
+  country      String     @default("BR")
+  timezone     String     @default("America/Sao_Paulo")
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  deletedAt    DateTime?  @map("deleted_at")
+  createdBy    String?    @map("created_by") @db.Uuid
+  updatedBy    String?    @map("updated_by") @db.Uuid
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userBranches      UserBranch[]
+  employees         Employee[]
+  warehouses        Warehouse[]
+  salesOrders       SalesOrder[]
+  sales             Sale[]
+  quotes            Quote[]
+  purchaseOrders    PurchaseOrder[]
+  purchaseRequests  PurchaseRequest[]
+  purchaseQuotations PurchaseQuotation[]
+  pdvTerminals      PdvTerminal[]
+  serviceBoxes        ServiceBox[]
+  workshopAppointments WorkshopAppointment[]
+  cashRegisters     CashRegister[]
+  serviceOrders     ServiceOrder[]
+  fiscalConfiguration FiscalConfiguration?
+  fiscalSeries      FiscalSeries[]
+  fiscalInvoices    FiscalInvoice[]
+  appointments      Appointment[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("branches")
+}
+
+/// Usuário da plataforma. id == auth.users.id do Supabase Auth (fonte única
+/// de identidade). `role` mantém compatibilidade com o guard JWT da Sprint 01;
+/// `profileId` é o novo sistema de RBAC granular (Perfis/Permissões) desta sprint.
+model User {
+  id        String    @id @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  profileId String?   @map("profile_id") @db.Uuid
+  email     String    @unique
+  fullName  String?   @map("full_name")
+  phone     String?
+  avatarUrl String?   @map("avatar_url")
+  role      UserRole  @default(viewer)
+  isActive  Boolean   @default(true) @map("is_active")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  profile     Profile?     @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  auditLogs   AuditLog[]
+  branches    UserBranch[]
+  employee    Employee?
+  notifications Notification[]
+  aiInteractions AiInteraction[]
+
+  @@index([tenantId])
+  @@index([profileId])
+  @@map("users")
+}
+
+/// Acesso de um usuário a uma filial específica (controle multiloja).
+/// Um usuário sem nenhum registro aqui e com role >= manager pode ser
+/// tratado pela aplicação como "acesso a todas as filiais do tenant".
+model UserBranch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+  @@map("user_branches")
+}
+
+/// Perfil de acesso customizável por tenant (ex: "Gerente de Filial",
+/// "Vendedor Balcão", "Financeiro"). Granularidade real de permissão vem
+/// de ProfilePermission.
+model Profile {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system") // perfis padrão não removíveis
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       User[]
+  permissions ProfilePermission[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("profiles")
+}
+
+/// Catálogo GLOBAL de permissões granulares por módulo/ação
+/// (ex: "products.create", "sales.cancel", "financial.payables.approve").
+/// Não pertence a um tenant — é mantido pela plataforma e versionado junto
+/// com o código da aplicação.
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  module      String   // ex: "products", "sales", "financial"
+  action      String   // ex: "view", "create", "update", "delete", "approve"
+  key         String   @unique // "products.create"
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  profiles ProfilePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model ProfilePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  profileId    String   @map("profile_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  profile    Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, permissionId])
+  @@index([permissionId])
+  @@map("profile_permissions")
+}
+
+enum AuditAction {
+  insert
+  update
+  delete
+  login
+  logout
+  nf_emit
+  nf_cancel
+  permission_change
+  stock_adjustment
+  price_change
+  export
+  approve
+  reject
+  receive
+  confer
+  credit_change
+  consent_change
+  anonymize
+  document_upload
+  document_download
+  sensitive_data_view
+}
+
+/// Trilha de auditoria de negócio (quem fez o quê, em qual registro).
+/// `entity`/`entityId` referenciam o registro alvo por convenção
+/// (sem FK física, pois aponta para qualquer tabela do sistema).
+model AuditLog {
+  id        String      @id @default(uuid()) @db.Uuid
+  tenantId  String      @map("tenant_id") @db.Uuid
+  userId    String?     @map("user_id") @db.Uuid
+  action    AuditAction
+  entity    String
+  entityId  String?     @map("entity_id") @db.Uuid
+  before    Json?       // snapshot do registro antes da alteração
+  after     Json?       // snapshot do registro depois da alteração
+  ipAddress String?     @map("ip_address")
+  userAgent String?     @map("user_agent")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, entity, entityId])
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+enum SystemLogLevel {
+  debug
+  info
+  warning
+  error
+  critical
+}
+
+/// Logs técnicos (diferente de AuditLog, que é de negócio): erros de
+/// integração, falhas de job, timeouts de NF-e, etc. Útil para observabilidade
+/// e troubleshooting sem poluir a trilha de auditoria de negócio.
+model SystemLog {
+  id        String          @id @default(uuid()) @db.Uuid
+  tenantId  String?         @map("tenant_id") @db.Uuid
+  level     SystemLogLevel
+  source    String          // ex: "nfe-integration", "stock-job", "api"
+  message   String
+  context   Json?
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, level, createdAt])
+  @@map("system_logs")
+}
+
+// =============================================================================
+// SEÇÃO 2 — PESSOAS E PARCEIROS (CLIENTES, FORNECEDORES, EQUIPE, TRANSPORTE)
+// =============================================================================
+
+enum PersonType {
+  individual // Pessoa Física
+  business   // Pessoa Jurídica
+}
+
+enum CustomerStatus {
+  active
+  inactive
+  blocked
+}
+
+/// Cliente final ou empresarial da Empresa (Company). Mantido em nível de
+/// Company (não Branch) pois um cliente pode comprar em qualquer filial.
+enum CustomerType {
+  final_consumer  // Consumidor Final
+  workshop        // Cliente Oficina
+  wholesale       // Cliente Atacado
+  retail          // Cliente Varejo
+}
+
+enum CreditStatus {
+  not_analyzed
+  approved
+  under_review
+  restricted
+  blocked
+}
+
+/// Cliente — cadastro mestre oficial (Sprint 08, MDM): fonte única de
+/// verdade consumida por Vendas/PDV/Oficina/Financeiro. Os campos de
+/// crédito/compra (`creditScore`, `lastPurchaseAt`, `totalPurchasesCount`,
+/// `averageTicketValue`, `largestPurchaseValue`) são SNAPSHOTS
+/// denormalizados, recalculados por `CustomerCreditService.refreshProfile()`
+/// — nunca a fonte de verdade isolada (que são as tabelas transacionais
+/// reais: Sale, AccountsReceivable etc.); existem só para leitura O(1) em
+/// listagens de milhões de clientes, sem precisar agregar em tempo real.
+model Customer {
+  id                  String         @id @default(uuid()) @db.Uuid
+  tenantId            String         @map("tenant_id") @db.Uuid
+  companyId           String         @map("company_id") @db.Uuid
+  originBranchId      String?        @map("origin_branch_id") @db.Uuid
+  personType          PersonType     @map("person_type")
+  customerType        CustomerType   @default(retail) @map("customer_type")
+  document            String         // CPF ou CNPJ
+  stateRegistration   String?        @map("state_registration") // IE
+  municipalRegistration String?      @map("municipal_registration") // IM
+  rg                  String?
+  suframaCode         String?        @map("suframa_code")
+  name                String         // Nome ou Razão Social
+  tradeName           String?        @map("trade_name") // Nome Fantasia (PJ)
+  classification      String?        // classificação livre (ex: "Premium", "Recorrente")
+  category            String?        // categoria comercial
+  segment             String?        // segmento de mercado
+  email               String?
+  phone               String?
+  whatsapp            String?
+  website             String?
+  instagram           String?
+  facebook            String?
+  birthDate           DateTime?      @map("birth_date") @db.Date
+  zipCode             String?        @map("zip_code")
+  street              String?
+  number              String?
+  complement          String?
+  neighborhood        String?
+  city                String?
+  state               String?        @db.Char(2)
+  country             String         @default("BR")
+  latitude            Decimal?       @db.Decimal(10, 7)
+  longitude           Decimal?       @db.Decimal(10, 7)
+  creditLimit         Decimal        @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  creditScore         Int?           @map("credit_score") // 0-1000, recalculado por CustomerCreditService
+  creditStatus        CreditStatus   @default(not_analyzed) @map("credit_status")
+  creditAnalyzedAt     DateTime?     @map("credit_analyzed_at")
+  lastPurchaseAt      DateTime?      @map("last_purchase_at")
+  totalPurchasesCount Int            @default(0) @map("total_purchases_count")
+  averageTicketValue  Decimal        @default(0) @map("average_ticket_value") @db.Decimal(15, 2)
+  largestPurchaseValue Decimal       @default(0) @map("largest_purchase_value") @db.Decimal(15, 2)
+  status              CustomerStatus @default(active)
+  notes               String?
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+  deletedAt           DateTime?      @map("deleted_at")
+  createdBy           String?        @map("created_by") @db.Uuid
+  updatedBy           String?        @map("updated_by") @db.Uuid
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  addresses        CustomerAddress[]
+  contacts         CustomerContact[]
+  vehicles         CustomerVehicle[]
+  quotes           Quote[]
+  salesOrders      SalesOrder[]
+  sales            Sale[]
+  serviceOrders    ServiceOrder[]
+  accountsReceivable AccountsReceivable[]
+  interactions     Interaction[]
+  appointments     Appointment[]
+  fiscalInvoices   FiscalInvoice[]
+  creditEvents     CustomerCreditEvent[]
+  consents         DataConsent[]
+  opportunities    CrmOpportunity[]
+  supportTickets   SupportTicket[]
+  campaignMembers  CrmCampaignMember[]
+  workshopAppointments WorkshopAppointment[]
+  serviceFollowUps     ServiceFollowUp[]
+
+  @@unique([companyId, document])
+  @@index([tenantId])
+  @@index([companyId, name])
+  @@index([document])
+  @@index([customerType])
+  @@index([creditStatus])
+  @@map("customers")
+}
+
+enum ContactKind {
+  primary     // Contato principal
+  financial   // Contato financeiro
+  purchasing  // Contato compras
+  workshop    // Contato oficina
+  fiscal      // Contato fiscal
+}
+
+/// Múltiplos contatos por Cliente/Fornecedor (briefing: "Permitir múltiplos
+/// contatos"). Reaproveitado por `SupplierContact` via o mesmo `ContactKind`.
+model CustomerContact {
+  id         String      @id @default(uuid()) @db.Uuid
+  tenantId   String      @map("tenant_id") @db.Uuid
+  customerId String      @map("customer_id") @db.Uuid
+  kind       ContactKind @default(primary)
+  name       String
+  phone      String?
+  whatsapp   String?
+  email      String?
+  notes      String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+enum CreditEventType {
+  limit_change
+  status_change
+  manual_review
+  automatic_block
+  automatic_unblock
+}
+
+/// Auditoria específica de crédito (briefing: "Registrar... Alteração de
+/// crédito"). Complementa o `AuditLog` genérico (Sprint 02) com o
+/// before/after de crédito já tipado, para a tela de histórico de crédito
+/// não precisar interpretar JSON genérico.
+model CustomerCreditEvent {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  customerId    String          @map("customer_id") @db.Uuid
+  type          CreditEventType
+  previousLimit Decimal?        @map("previous_limit") @db.Decimal(15, 2)
+  newLimit      Decimal?        @map("new_limit") @db.Decimal(15, 2)
+  previousStatus CreditStatus?  @map("previous_status")
+  newStatus     CreditStatus?   @map("new_status")
+  reason        String?
+  createdAt     DateTime        @default(now()) @map("created_at")
+  createdBy     String?         @map("created_by") @db.Uuid
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("customer_credit_events")
+}
+
+enum AddressKind {
+  billing      // Cobrança
+  shipping     // Entrega
+  fiscal       // Fiscal
+  residential  // Residencial
+  commercial   // Comercial
+  other
+}
+
+/// Endereços adicionais do cliente (entrega/cobrança), além do endereço
+/// principal armazenado em Customer.
+model CustomerAddress {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @map("tenant_id") @db.Uuid
+  customerId   String      @map("customer_id") @db.Uuid
+  kind         AddressKind @default(shipping)
+  label        String?
+  zipCode      String      @map("zip_code")
+  street       String
+  number       String?
+  complement   String?
+  neighborhood String?
+  city         String
+  state        String      @db.Char(2)
+  country      String      @default("BR")
+  latitude     Decimal?    @db.Decimal(10, 7)
+  longitude    Decimal?    @db.Decimal(10, 7)
+  isDefault    Boolean     @default(false) @map("is_default")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+enum SupplierStatus {
+  active
+  inactive
+  blocked
+}
+
+/// Fornecedor de produtos/serviços da Empresa.
+model Supplier {
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  companyId         String         @map("company_id") @db.Uuid
+  personType        PersonType     @map("person_type")
+  document          String
+  stateRegistration String?        @map("state_registration")
+  name              String
+  tradeName         String?        @map("trade_name")
+  email             String?
+  phone             String?
+  zipCode           String?        @map("zip_code")
+  street            String?
+  number            String?
+  complement        String?
+  neighborhood       String?
+  city              String?
+  state             String?        @db.Char(2)
+  country           String         @default("BR")
+  paymentTermDays   Int?           @map("payment_term_days") // prazo médio de pagamento
+  status            SupplierStatus @default(active)
+  notes             String?
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  deletedAt         DateTime?      @map("deleted_at")
+  createdBy         String?        @map("created_by") @db.Uuid
+  updatedBy         String?        @map("updated_by") @db.Uuid
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  productSuppliers ProductSupplier[]
+  batches          ProductBatch[]
+  primaryForProducts Product[]       @relation("ProductPrimarySupplier")
+  purchaseOrders   PurchaseOrder[]
+  quotationSuppliers PurchaseQuotationSupplier[]
+  accountsPayable  AccountsPayable[]
+  fiscalInvoices   FiscalInvoice[]
+  contacts         SupplierContact[]
+  consents         DataConsent[]
+
+  @@unique([companyId, document])
+  @@index([tenantId])
+  @@index([companyId, name])
+  @@map("suppliers")
+}
+
+/// Múltiplos contatos por Fornecedor — mesmo padrão de `CustomerContact`.
+model SupplierContact {
+  id         String      @id @default(uuid()) @db.Uuid
+  tenantId   String      @map("tenant_id") @db.Uuid
+  supplierId String      @map("supplier_id") @db.Uuid
+  kind       ContactKind @default(primary)
+  name       String
+  phone      String?
+  whatsapp   String?
+  email      String?
+  notes      String?
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([supplierId])
+  @@map("supplier_contacts")
+}
+
+enum EmployeeStatus {
+  active
+  on_leave
+  terminated
+}
+
+/// Funcionário da Empresa. `userId` é opcional (nem todo funcionário tem
+/// login no sistema, ex: ajudante de depósito). Vendedor/Mecânico são
+/// especializações 1:1 deste registro. Salário fica em `EmployeeSalary`
+/// (tabela separada, nunca neste model) — visualização exige a permissão
+/// dedicada `employees.view_financial` (ver `EmployeesController`), e
+/// nunca é incluída no payload padrão de listagem/detalhe do funcionário.
+model Employee {
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  companyId    String         @map("company_id") @db.Uuid
+  branchId     String         @map("branch_id") @db.Uuid
+  departmentId String?        @map("department_id") @db.Uuid
+  userId       String?        @unique @map("user_id") @db.Uuid
+  document     String         @unique // CPF
+  rg           String?
+  name         String
+  email        String?
+  phone        String?
+  role         String         // cargo (texto livre, ex: "Atendente", "Estoquista")
+  photoUrl     String?        @map("photo_url")
+  signatureUrl String?        @map("signature_url")
+  hiredAt      DateTime?      @map("hired_at") @db.Date
+  terminatedAt DateTime?      @map("terminated_at") @db.Date
+  status       EmployeeStatus @default(active)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  deletedAt    DateTime?      @map("deleted_at")
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch     Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  salesperson Salesperson?
+  mechanic    Mechanic?
+  salaryHistory EmployeeSalary[]
+  serviceOrdersAsConsultant ServiceOrder[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([branchId])
+  @@index([departmentId])
+  @@map("employees")
+}
+
+/// Estrutura protegida de remuneração — histórico (uma linha por
+/// vigência), nunca exposta no cadastro padrão do funcionário. Acesso via
+/// endpoint dedicado, permissão `employees.view_financial` (briefing:
+/// "Salário (estrutura protegida)").
+model EmployeeSalary {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  baseSalary  Decimal  @map("base_salary") @db.Decimal(15, 2)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  effectiveTo DateTime? @map("effective_to") @db.Date
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String?  @map("created_by") @db.Uuid
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@map("employee_salaries")
+}
+
+/// Especialização de Employee para colaboradores que vendem (comissionados).
+model Salesperson {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  employeeId       String   @unique @map("employee_id") @db.Uuid
+  commissionRate   Decimal  @default(0) @map("commission_rate") @db.Decimal(7, 4) // % padrão
+  monthlyGoal      Decimal? @map("monthly_goal") @db.Decimal(15, 2)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  employee      Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  sales         Sale[]
+  salesOrders   SalesOrder[]
+  quotes        Quote[]
+  commissions   Commission[]
+
+  @@index([tenantId])
+  @@map("salespersons")
+}
+
+/// Especialização de Employee para mecânicos/técnicos de oficina.
+model Mechanic {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  employeeId     String   @unique @map("employee_id") @db.Uuid
+  specialties    String[] // ex: ["injeção eletrônica", "suspensão"]
+  commissionRate Decimal  @default(0) @map("commission_rate") @db.Decimal(7, 4)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  employee      Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  serviceOrders ServiceOrder[]
+  commissions   Commission[]
+  workshopAppointments WorkshopAppointment[]
+  certifications MechanicCertification[]
+  timeEntries   MechanicTimeEntry[]
+
+  @@index([tenantId])
+  @@map("mechanics")
+}
+
+/// Certificação técnica do mecânico (briefing: "Certificações").
+model MechanicCertification {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  mechanicId  String    @map("mechanic_id") @db.Uuid
+  name        String
+  issuer      String?
+  issuedAt    DateTime? @map("issued_at") @db.Date
+  expiresAt   DateTime? @map("expires_at") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  mechanic Mechanic @relation(fields: [mechanicId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([mechanicId])
+  @@map("mechanic_certifications")
+}
+
+/// Apontamento de horas trabalhadas (briefing: "Horas trabalhadas") —
+/// granularidade simples de início/fim, opcionalmente ligado a uma Ordem
+/// de Serviço específica (Sprint 02, `ServiceOrder`).
+model MechanicTimeEntry {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  mechanicId     String    @map("mechanic_id") @db.Uuid
+  serviceOrderId String?   @map("service_order_id") @db.Uuid
+  startedAt      DateTime  @map("started_at")
+  endedAt        DateTime? @map("ended_at")
+  notes          String?
+
+  mechanic     Mechanic      @relation(fields: [mechanicId], references: [id], onDelete: Cascade)
+  serviceOrder ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([mechanicId])
+  @@map("mechanic_time_entries")
+}
+
+/// Transportadora responsável pela logística de entrega/coleta.
+model Carrier {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  document  String
+  name      String
+  stateRegistration String? @map("state_registration")
+  email     String?
+  phone     String?
+  city      String?
+  state     String?   @db.Char(2)
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  fiscalInvoices FiscalInvoice[]
+  goodsReceipts  GoodsReceipt[]
+  freightTables  CarrierFreightTable[]
+  vehicles       CarrierVehicle[]
+  drivers        CarrierDriver[]
+
+  @@unique([companyId, document])
+  @@index([tenantId])
+  @@map("carriers")
+}
+
+/// Tabela de frete da Transportadora — uma por região atendida (briefing:
+/// "Tabela de frete, Regiões, Prazo").
+model CarrierFreightTable {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  carrierId   String   @map("carrier_id") @db.Uuid
+  region      String   // ex: "Grande São Paulo", estado, ou faixa de CEP
+  pricePerKg  Decimal? @map("price_per_kg") @db.Decimal(10, 4)
+  flatRate    Decimal? @map("flat_rate") @db.Decimal(10, 2)
+  leadTimeDays Int     @map("lead_time_days")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  carrier Carrier @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([carrierId])
+  @@map("carrier_freight_tables")
+}
+
+model CarrierVehicle {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  carrierId    String   @map("carrier_id") @db.Uuid
+  plate        String
+  model        String?
+  capacityKg   Decimal? @map("capacity_kg") @db.Decimal(10, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  carrier Carrier @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+
+  @@unique([carrierId, plate])
+  @@index([tenantId])
+  @@map("carrier_vehicles")
+}
+
+model CarrierDriver {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  carrierId String   @map("carrier_id") @db.Uuid
+  name      String
+  document  String?  // CPF
+  licenseNumber String? @map("license_number")
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  carrier Carrier @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("carrier_drivers")
+}
+
+// =============================================================================
+// SEÇÃO 3 — CATÁLOGO DE VEÍCULOS (GLOBAL, COMPARTILHADO ENTRE TENANTS)
+// =============================================================================
+// Montadora -> Modelo -> Versão (motor + combustível + ano + chassi).
+// Catálogo de referência (como uma "tabela FIPE" interna): mantido pela
+// plataforma, não duplicado por tenant. A compatibilidade peça x veículo
+// é feita via ProductVehicleApplication (Seção 4), essa sim tenant-scoped.
+
+/// Montadora (ex: Fiat, Volkswagen, Chevrolet).
+model VehicleMake {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  logoUrl   String?   @map("logo_url")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  models VehicleModel[]
+
+  @@map("vehicle_makes")
+}
+
+/// Modelo (ex: Uno, Gol, Onix), pertence a uma Montadora.
+model VehicleModel {
+  id        String    @id @default(uuid()) @db.Uuid
+  makeId    String    @map("make_id") @db.Uuid
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  make     VehicleMake      @relation(fields: [makeId], references: [id], onDelete: Restrict)
+  versions VehicleVersion[]
+
+  @@unique([makeId, name])
+  @@index([makeId])
+  @@map("vehicle_models")
+}
+
+/// Código/família de motor (ex: "1.0 8V Fire", "EA211 1.6 MSI").
+model Engine {
+  id           String  @id @default(uuid()) @db.Uuid
+  code         String  @unique
+  displacement Decimal? @db.Decimal(4, 1) // cilindrada em litros, ex: 1.6
+  cylinders    Int?
+  powerHp      Int?    @map("power_hp")
+  description  String?
+
+  versions VehicleVersion[]
+
+  @@map("engines")
+}
+
+enum FuelKind {
+  gasolina
+  etanol
+  flex
+  diesel
+  gnv
+  eletrico
+  hibrido
+}
+
+/// Catálogo de combustíveis.
+model FuelType {
+  id   String   @id @default(uuid()) @db.Uuid
+  kind FuelKind @unique
+  name String
+
+  versions VehicleVersion[]
+
+  @@map("fuel_types")
+}
+
+/// Versão comercial de um Modelo (ex: "Uno Mille 1.0 Fire Flex 2010-2014"),
+/// unidade real de compatibilidade de peças.
+model VehicleVersion {
+  id          String    @id @default(uuid()) @db.Uuid
+  modelId     String    @map("model_id") @db.Uuid
+  engineId    String?   @map("engine_id") @db.Uuid
+  fuelTypeId  String?   @map("fuel_type_id") @db.Uuid
+  name        String    // ex: "1.0 Fire Flex"
+  yearStart   Int       @map("year_start")
+  yearEnd     Int?      @map("year_end") // null = ainda em produção
+  bodyType    String?   @map("body_type") // hatch, sedan, pickup, suv...
+  chassisPrefix String? @map("chassis_prefix")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  model    VehicleModel @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  engine   Engine?      @relation(fields: [engineId], references: [id], onDelete: SetNull)
+  fuelType FuelType?    @relation(fields: [fuelTypeId], references: [id], onDelete: SetNull)
+
+  applications      ProductVehicleApplication[]
+  customerVehicles  CustomerVehicle[]
+
+  @@index([modelId])
+  @@index([yearStart, yearEnd])
+  @@map("vehicle_versions")
+}
+
+/// Veículo de propriedade de um Cliente (placa, chassi, km), usado em
+/// Ordens de Serviço e histórico de manutenção.
+model CustomerVehicle {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  customerId       String    @map("customer_id") @db.Uuid
+  vehicleVersionId String?   @map("vehicle_version_id") @db.Uuid
+  plate            String?
+  chassis          String?   // VIN
+  renavam          String?
+  color            String?
+  modelYear        Int?      @map("model_year")
+  manufactureYear  Int?      @map("manufacture_year")
+  currentKm        Int?      @map("current_km")
+  notes            String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicleVersion VehicleVersion? @relation(fields: [vehicleVersionId], references: [id], onDelete: SetNull)
+
+  serviceOrders ServiceOrder[]
+  sales         Sale[]
+  workshopAppointments WorkshopAppointment[]
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([plate])
+  @@index([chassis])
+  @@map("customer_vehicles")
+}
+
+// =============================================================================
+// SEÇÃO 4 — PRODUTOS (CATÁLOGO DE PEÇAS)
+// =============================================================================
+
+/// Marca comercial do produto (ex: Bosch, NGK, Cofap). Catálogo GLOBAL —
+/// compartilhado entre tenants, mantido pela plataforma.
+model Brand {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  logoUrl   String?  @map("logo_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products Product[]
+
+  @@map("brands")
+}
+
+/// Fabricante real da peça (pode diferir da marca comercial em casos de
+/// fabricação sob encomenda/terceirizada). Catálogo GLOBAL.
+model Manufacturer {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  document  String?  // CNPJ, se fabricante nacional cadastrado
+  country   String?  @default("BR")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products Product[]
+  inventories Inventory[]
+
+  @@map("manufacturers")
+}
+
+/// Unidade de medida (catálogo GLOBAL): UN, CX, PC, KG, L, M, PAR...
+model Unit {
+  id           String  @id @default(uuid()) @db.Uuid
+  code         String  @unique // "UN", "KG", "CX"
+  description  String
+  allowsDecimal Boolean @default(false) @map("allows_decimal")
+
+  products Product[]
+
+  @@map("units")
+}
+
+/// Grupo de produtos (ex: "Freios", "Suspensão", "Motor"). Tenant-scoped,
+/// pois cada loja organiza seu catálogo à sua maneira.
+model ProductGroup {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  subgroups ProductSubgroup[]
+  products  Product[]
+  inventories Inventory[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_groups")
+}
+
+/// Categoria de produto — classificação adicional e independente de
+/// Grupo/Subgrupo (ex: "Linha Premium", "Curva A"), usada por relatórios e
+/// regras comerciais que não se encaixam na hierarquia Grupo > Subgrupo.
+model ProductCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("product_categories")
+}
+
+/// Subgrupo (ex: "Pastilhas de Freio" dentro de "Freios").
+model ProductSubgroup {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  groupId   String    @map("group_id") @db.Uuid
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  group    ProductGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  products Product[]
+
+  @@unique([groupId, name])
+  @@index([tenantId])
+  @@index([groupId])
+  @@map("product_subgroups")
+}
+
+enum ProductOrigin {
+  nacional                          // 0
+  estrangeira_importacao_direta     // 1
+  estrangeira_mercado_interno       // 2
+  nacional_importacao_acima_40      // 3
+  nacional_processos_produtivos     // 4
+  nacional_importacao_menor_40      // 5
+  estrangeira_sem_similar_nacional  // 6
+  estrangeira_sem_similar_mercado   // 7
+  nacional_conteudo_importacao_70   // 8
+}
+
+enum ProductStatus {
+  active
+  inactive
+  discontinued
+}
+
+/// Produto/peça — entidade central do catálogo. Preparado para milhões de
+/// linhas: todas as colunas de busca/filtro possuem índice dedicado.
+model Product {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @map("tenant_id") @db.Uuid
+
+  // Identificação / códigos
+  internalCode      String        @map("internal_code") // código interno (SKU)
+  barcode           String?       @map("barcode") // EAN/GTIN
+  manufacturerCode  String?       @map("manufacturer_code")
+  originalCode      String?       @map("original_code") // código original da montadora
+  similarCode       String?       @map("similar_code") // código de referência de mercado
+
+  shortDescription  String        @map("short_description")
+  fullDescription   String?       @map("full_description")
+
+  brandId           String?       @map("brand_id") @db.Uuid
+  manufacturerId    String?       @map("manufacturer_id") @db.Uuid
+  groupId           String?       @map("group_id") @db.Uuid
+  subgroupId        String?       @map("subgroup_id") @db.Uuid
+  categoryId        String?       @map("category_id") @db.Uuid
+  unitId            String        @map("unit_id") @db.Uuid
+
+  // Fiscal
+  ncmCode           String?       @map("ncm_code")
+  cestCode          String?       @map("cest_code")
+  defaultCfopCode   String?       @map("default_cfop_code")
+  defaultCstCode    String?       @map("default_cst_code")
+  defaultCsosnCode  String?       @map("default_csosn_code")
+  origin            ProductOrigin @default(nacional)
+  ipiRate           Decimal       @default(0) @map("ipi_rate") @db.Decimal(7, 4)
+  icmsRate          Decimal       @default(0) @map("icms_rate") @db.Decimal(7, 4)
+  pisRate           Decimal       @default(0) @map("pis_rate") @db.Decimal(7, 4)
+  cofinsRate        Decimal       @default(0) @map("cofins_rate") @db.Decimal(7, 4)
+
+  // Dimensões físicas
+  weightKg          Decimal?      @map("weight_kg") @db.Decimal(10, 3)
+  heightCm          Decimal?      @map("height_cm") @db.Decimal(10, 2)
+  widthCm           Decimal?      @map("width_cm") @db.Decimal(10, 2)
+  lengthCm          Decimal?      @map("length_cm") @db.Decimal(10, 2)
+
+  // Estoque (parâmetros — saldo real fica em Stock)
+  defaultLocationId String?       @map("default_location_id") @db.Uuid
+  minStock          Decimal       @default(0) @map("min_stock") @db.Decimal(15, 4)
+  maxStock          Decimal?      @map("max_stock") @db.Decimal(15, 4)
+
+  // Preços
+  costPrice         Decimal       @default(0) @map("cost_price") @db.Decimal(15, 4)
+  averageCostPrice  Decimal       @default(0) @map("average_cost_price") @db.Decimal(15, 4)
+  salePrice         Decimal       @default(0) @map("sale_price") @db.Decimal(15, 4)
+  wholesalePrice    Decimal?      @map("wholesale_price") @db.Decimal(15, 4)
+  workshopPrice     Decimal?      @map("workshop_price") @db.Decimal(15, 4)
+  distributorPrice  Decimal?      @map("distributor_price") @db.Decimal(15, 4)
+  marginPercent     Decimal?      @map("margin_percent") @db.Decimal(7, 4)
+
+  // Fornecedor principal (denormalizado para consulta rápida; histórico
+  // completo de fornecedores/preços fica em ProductSupplier)
+  primarySupplierId String?       @map("primary_supplier_id") @db.Uuid
+
+  warrantyDays      Int?          @map("warranty_days")
+  notes             String?
+  status            ProductStatus @default(active)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
+  createdBy         String?       @map("created_by") @db.Uuid
+  updatedBy         String?       @map("updated_by") @db.Uuid
+
+  brand            Brand?           @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  manufacturer     Manufacturer?    @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  group            ProductGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  subgroup         ProductSubgroup? @relation(fields: [subgroupId], references: [id], onDelete: SetNull)
+  category         ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unit             Unit             @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  defaultLocation  StorageLocation? @relation(fields: [defaultLocationId], references: [id], onDelete: SetNull)
+  primarySupplier  Supplier?        @relation("ProductPrimarySupplier", fields: [primarySupplierId], references: [id], onDelete: SetNull)
+
+  photos              ProductPhoto[]
+  suppliers           ProductSupplier[]
+  vehicleApplications ProductVehicleApplication[]
+  crossReferencesFrom ProductCrossReference[]      @relation("ProductCrossRefSource")
+  crossReferencesTo   ProductCrossReference[]      @relation("ProductCrossRefTarget")
+  promotions          ProductPromotion[]
+  stocks              Stock[]
+  stockByLocation     StockByLocation[]
+  stockReservations   StockReservation[]
+  batches             ProductBatch[]
+  serials             ProductSerial[]
+  stockMovements      StockMovement[]
+  inventoryItems      InventoryItem[]
+  stockTransferItems  StockTransferItem[]
+  purchaseOrderItems  PurchaseOrderItem[]
+  purchaseRequestItems PurchaseRequestItem[]
+  quotationItems       PurchaseQuotationItem[]
+  purchaseSuggestions  PurchaseSuggestion[]
+  saleReturnItems      SaleReturnItem[]
+  warranties           Warranty[]
+  goodsReceiptItems   GoodsReceiptItem[]
+  quoteItems          QuoteItem[]
+  salesOrderItems     SalesOrderItem[]
+  saleItems           SaleItem[]
+  serviceOrderParts   ServiceOrderPart[]
+  fiscalInvoiceItems  FiscalInvoiceItem[]
+
+  @@unique([tenantId, internalCode])
+  @@index([tenantId])
+  @@index([tenantId, barcode])
+  @@index([tenantId, manufacturerCode])
+  @@index([tenantId, originalCode])
+  @@index([tenantId, shortDescription])
+  @@index([brandId])
+  @@index([groupId])
+  @@index([subgroupId])
+  @@index([categoryId])
+  @@index([ncmCode])
+  @@index([status])
+  @@map("products")
+}
+
+/// Galeria de fotos do produto (ordenável, com flag de foto de capa).
+model ProductPhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  url       String
+  isPrimary Boolean  @default(false) @map("is_primary")
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@map("product_photos")
+}
+
+/// Relação N:N produto x fornecedor, com preço e prazo de entrega
+/// específicos por fornecedor (histórico de cotação).
+model ProductSupplier {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  productId       String    @map("product_id") @db.Uuid
+  supplierId      String    @map("supplier_id") @db.Uuid
+  supplierSku     String?   @map("supplier_sku")
+  lastPurchasePrice Decimal? @map("last_purchase_price") @db.Decimal(15, 4)
+  leadTimeDays    Int?      @map("lead_time_days")
+  isPreferred     Boolean   @default(false) @map("is_preferred")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, supplierId])
+  @@index([tenantId])
+  @@index([supplierId])
+  @@map("product_suppliers")
+}
+
+/// Autorrelação de produtos similares/cross-reference (ex: peça equivalente
+/// de outra marca). Direção source -> target, consultável nos dois sentidos
+/// pela aplicação.
+enum ProductRelationType {
+  similar       // Similar — mesma função, especificação aproximada
+  equivalent    // Equivalente — substitui 1:1 sem ressalvas
+  complementary // Complementar — comprado/instalado em conjunto (ex: kit)
+  substitute    // Substituto — alternativa aceitável na falta do principal
+}
+
+/// Autorrelação de produtos relacionados (similares/equivalentes/
+/// complementares/substitutos). Direção source -> target, consultável nos
+/// dois sentidos pela aplicação.
+model ProductCrossReference {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  productId        String              @map("product_id") @db.Uuid
+  relatedProductId String              @map("related_product_id") @db.Uuid
+  type             ProductRelationType @default(similar)
+  notes            String?
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  product        Product @relation("ProductCrossRefSource", fields: [productId], references: [id], onDelete: Cascade)
+  relatedProduct Product @relation("ProductCrossRefTarget", fields: [relatedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, relatedProductId, type])
+  @@index([tenantId])
+  @@map("product_cross_references")
+}
+
+/// Tabela intermediária N:N entre Produto e Versão de Veículo — o coração
+/// do "catálogo inteligente" de aplicação de peças. Uma peça pode atender
+/// milhares de versões de veículos; uma versão pode usar milhares de peças.
+model ProductVehicleApplication {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  vehicleVersionId String   @map("vehicle_version_id") @db.Uuid
+  position         String?  // ex: "dianteiro", "traseiro", "lado direito"
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  product        Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vehicleVersion VehicleVersion @relation(fields: [vehicleVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, vehicleVersionId, position])
+  @@index([tenantId])
+  @@index([vehicleVersionId])
+  @@map("product_vehicle_applications")
+}
+
+enum PromotionType {
+  percentage_discount // desconto percentual sobre salePrice
+  fixed_discount      // desconto em valor fixo
+  fixed_price         // preço fixo promocional, ignora salePrice no período
+}
+
+/// Estrutura de promoções futuras (Sprint 05 entrega apenas o modelo de
+/// dados — nenhuma regra de aplicação em PDV/Vendas é implementada ainda,
+/// conforme escopo definido). Permite já cadastrar uma promoção vigente
+/// por produto e período, pronta para ser consumida pelo módulo de Vendas/
+/// PDV quando este for implementado.
+model ProductPromotion {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @map("tenant_id") @db.Uuid
+  productId String        @map("product_id") @db.Uuid
+  type      PromotionType
+  value     Decimal       @db.Decimal(15, 4) // percentual (0-100) ou valor monetário, conforme `type`
+  startDate DateTime      @map("start_date") @db.Date
+  endDate   DateTime      @map("end_date") @db.Date
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at")
+  createdBy String?       @map("created_by") @db.Uuid
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId, startDate, endDate])
+  @@map("product_promotions")
+}
+
+// =============================================================================
+// SEÇÃO 5 — ESTOQUE (DEPÓSITOS, LOCALIZAÇÃO FÍSICA, MOVIMENTAÇÕES)
+// =============================================================================
+
+/// Depósito físico vinculado a uma Filial. Uma filial pode ter múltiplos
+/// depósitos (ex: loja + depósito avançado).
+model Warehouse {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  branchId  String    @map("branch_id") @db.Uuid
+  code      String
+  name      String
+  isDefault Boolean   @default(false) @map("is_default")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  purchaseSuggestions PurchaseSuggestion[]
+  sales               Sale[]
+
+  aisles            Aisle[]
+  stocks            Stock[]
+  stockReservations StockReservation[]
+  stockMovements    StockMovement[]
+  inventories       Inventory[]
+  transfersOrigin      StockTransfer[] @relation("StockTransferOrigin")
+  transfersDestination StockTransfer[] @relation("StockTransferDestination")
+
+  @@unique([branchId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@map("warehouses")
+}
+
+/// Corredor dentro de um Depósito — nível 1 do endereçamento WMS
+/// (Empresa > Filial > Depósito > CORREDOR > Rua > Prateleira > Nível > Posição).
+model Aisle {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  code        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  streets   Street[]
+
+  @@unique([warehouseId, code])
+  @@index([tenantId])
+  @@map("aisles")
+}
+
+/// Rua dentro de um Corredor — nível 2 do endereçamento WMS.
+model Street {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  aisleId     String   @map("aisle_id") @db.Uuid
+  code        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  aisle  Aisle   @relation(fields: [aisleId], references: [id], onDelete: Cascade)
+  shelves Shelf[]
+
+  @@unique([aisleId, code])
+  @@index([tenantId])
+  @@map("streets")
+}
+
+/// Prateleira dentro de uma Rua — nível 3 do endereçamento WMS.
+model Shelf {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  streetId    String   @map("street_id") @db.Uuid
+  code        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  street    Street            @relation(fields: [streetId], references: [id], onDelete: Cascade)
+  locations StorageLocation[]
+
+  @@unique([streetId, code])
+  @@index([tenantId])
+  @@map("shelves")
+}
+
+/// Posição exata de armazenagem — Nível + Posição (níveis 4 e 5 finais do
+/// endereçamento WMS), a "caixinha" física referenciada por
+/// Product.defaultLocationId e usada em conferências de inventário.
+/// `fullAddress` é o código completo denormalizado (ex: "A01-B05-P03-N02",
+/// Corredor-Rua-Prateleira-Nível), recalculado pelo `WmsLocationsService`
+/// a cada criação/edição — existe para exibição/busca rápida sem precisar
+/// de 4 JOINs a cada consulta de endereço.
+model StorageLocation {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  shelfId     String   @map("shelf_id") @db.Uuid
+  level       String   @map("level")    // Nível, ex: "N02"
+  position    String   @map("position") // Posição, ex: "P03"
+  fullAddress String?  @map("full_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  shelf            Shelf              @relation(fields: [shelfId], references: [id], onDelete: Cascade)
+  products         Product[]
+  stockBalances    StockByLocation[]
+  inventories      Inventory[]
+  stockMovements   StockMovement[]
+  transferOrigins      StockTransferItem[] @relation("TransferItemOriginLocation")
+  transferDestinations StockTransferItem[] @relation("TransferItemDestinationLocation")
+
+  @@unique([shelfId, level, position])
+  @@index([tenantId])
+  @@index([fullAddress])
+  @@map("storage_locations")
+}
+
+/// Saldo de estoque por posição física exata (granularidade abaixo de
+/// `Stock`, que é por Depósito). Preenchido pelas movimentações que já
+/// informam `StorageLocation` (ex: separação para expedição); a soma de
+/// `StockByLocation` para um produto+depósito sempre deve ser <=
+/// `Stock.quantityOnHand` correspondente — nunca a fonte de verdade isolada.
+model StockByLocation {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  locationId String   @map("location_id") @db.Uuid
+  quantity   Decimal  @default(0) @db.Decimal(15, 4)
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  product  Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location StorageLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationId])
+  @@index([tenantId])
+  @@map("stock_by_location")
+}
+
+/// Saldo consolidado de estoque por Produto x Depósito (leitura rápida,
+/// sem necessidade de somar StockMovement a cada consulta). Atualizado
+/// transacionalmente a cada movimentação.
+model Stock {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  productId         String   @map("product_id") @db.Uuid
+  warehouseId       String   @map("warehouse_id") @db.Uuid
+  quantityOnHand    Decimal  @default(0) @map("quantity_on_hand") @db.Decimal(15, 4)
+  quantityReserved  Decimal  @default(0) @map("quantity_reserved") @db.Decimal(15, 4)
+  quantityOnOrder   Decimal  @default(0) @map("quantity_on_order") @db.Decimal(15, 4)
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId])
+  @@index([tenantId])
+  @@index([warehouseId])
+  @@map("stocks")
+}
+
+enum StockMovementType {
+  purchase_in
+  sale_out
+  transfer_in
+  transfer_out
+  adjustment_in
+  adjustment_out
+  inventory_in
+  inventory_out
+  service_order_out
+  return_in
+  loss_out                 // Perda
+  breakage_out             // Quebra
+  internal_consumption_out // Consumo interno
+  bonus_in                 // Bonificação (recebida do fornecedor)
+}
+
+/// Ledger imutável de toda movimentação de estoque — fonte de verdade para
+/// auditoria e recomposição de saldo. `Stock` é a "foto" calculada a partir
+/// deste histórico. Auditoria completa (Sprint 06): quem, quando, IP, motivo,
+/// produto, quantidade e valor já estão todos neste registro — o
+/// `AuditLog` (Sprint 02) complementa com o evento de alto nível, este é o
+/// detalhe contábil/operacional.
+model StockMovement {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenantId      String             @map("tenant_id") @db.Uuid
+  productId     String             @map("product_id") @db.Uuid
+  warehouseId   String             @map("warehouse_id") @db.Uuid
+  locationId    String?            @map("location_id") @db.Uuid
+  batchId       String?            @map("batch_id") @db.Uuid
+  serialId      String?            @map("serial_id") @db.Uuid
+  type          StockMovementType
+  quantity      Decimal            @db.Decimal(15, 4) // sempre positivo; o `type` define o sinal
+  unitCost      Decimal?           @map("unit_cost") @db.Decimal(15, 4)
+  totalValue    Decimal?           @map("total_value") @db.Decimal(15, 2) // quantity * unitCost, denormalizado para relatórios de valor movimentado
+  reason        String?            // motivo (obrigatório na aplicação para perda/quebra/ajuste/consumo interno)
+  documentType  String?            @map("document_type") // "sale", "purchase_order", "transfer", "inventory"
+  documentId    String?            @map("document_id") @db.Uuid
+  notes         String?
+  ipAddress     String?            @map("ip_address")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  createdBy     String?            @map("created_by") @db.Uuid
+
+  product   Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  location  StorageLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  batch     ProductBatch?    @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  serial    ProductSerial?   @relation(fields: [serialId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([productId, warehouseId])
+  @@index([documentType, documentId])
+  @@index([createdAt])
+  @@map("stock_movements")
+}
+
+/// Lote de fabricação/fornecimento (estrutura preparada — Sprint 06 não
+/// implementa controle de saldo por lote no `Stock`, apenas o cadastro e a
+/// referência opcional em `StockMovement.batchId`; a granularidade
+/// completa "saldo por lote" é trabalho de uma sprint futura quando um
+/// módulo de negócio concreto — ex: peças com validade — precisar dela).
+model ProductBatch {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  productId        String    @map("product_id") @db.Uuid
+  supplierId       String?   @map("supplier_id") @db.Uuid
+  batchNumber      String    @map("batch_number")
+  manufacturedAt   DateTime? @map("manufactured_at") @db.Date
+  expiresAt        DateTime? @map("expires_at") @db.Date
+  quantity         Decimal   @default(0) @db.Decimal(15, 4)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  product       Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier      Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  stockMovements StockMovement[]
+
+  @@unique([productId, batchNumber])
+  @@index([tenantId])
+  @@index([expiresAt])
+  @@map("product_batches")
+}
+
+enum ProductSerialStatus {
+  in_stock
+  sold
+  returned
+  defective
+}
+
+/// Número de série/IMEI/Patrimônio (estrutura preparada — mesma observação
+/// de granularidade do `ProductBatch`: cadastro e rastreio individual hoje,
+/// integração com saída de venda específica por número de série é trabalho
+/// do módulo de Vendas/PDV).
+model ProductSerial {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  productId       String              @map("product_id") @db.Uuid
+  serialNumber    String              @map("serial_number")
+  imei            String?
+  assetTag        String?             @map("asset_tag") // Patrimônio
+  warrantyEndDate DateTime?           @map("warranty_end_date") @db.Date
+  status          ProductSerialStatus @default(in_stock)
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+
+  @@unique([productId, serialNumber])
+  @@index([tenantId])
+  @@map("product_serials")
+}
+
+enum InventoryStatus {
+  open
+  counting
+  reconciled
+  cancelled
+}
+
+enum InventoryType {
+  general          // Inventário Geral — todo o depósito
+  cycle            // Inventário Rotativo — amostragem periódica
+  by_location      // Inventário por Local (corredor/rua/prateleira específica)
+  by_group         // Inventário por Grupo de produto
+  by_manufacturer  // Inventário por Fabricante
+}
+
+/// Sessão de inventário físico (contagem) de um Depósito. `isBlind`
+/// (contagem cega) controla, na camada de aplicação, se o saldo de sistema
+/// é ocultado do operador durante a contagem — o dado já existe em
+/// `InventoryItem.systemQuantity` independente disso, só não é exibido na
+/// UI até a etapa de conferência. `parentInventoryId` aponta para o
+/// inventário original quando este registro é uma RECONTAGEM.
+model Inventory {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  warehouseId       String          @map("warehouse_id") @db.Uuid
+  parentInventoryId String?         @map("parent_inventory_id") @db.Uuid
+  type              InventoryType   @default(general)
+  code              String
+  status            InventoryStatus @default(open)
+  isBlind           Boolean         @default(false) @map("is_blind")
+  groupId           String?         @map("group_id") @db.Uuid
+  manufacturerId    String?         @map("manufacturer_id") @db.Uuid
+  locationId        String?         @map("location_id") @db.Uuid
+  startedAt         DateTime        @default(now()) @map("started_at")
+  closedAt          DateTime?       @map("closed_at")
+  notes             String?
+  createdBy         String?         @map("created_by") @db.Uuid
+
+  warehouse      Warehouse        @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  parentInventory Inventory?      @relation("InventoryRecount", fields: [parentInventoryId], references: [id], onDelete: SetNull)
+  recounts        Inventory[]     @relation("InventoryRecount")
+  group          ProductGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  manufacturer   Manufacturer?    @relation(fields: [manufacturerId], references: [id], onDelete: SetNull)
+  location       StorageLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  items          InventoryItem[]
+
+  @@unique([warehouseId, code])
+  @@index([tenantId])
+  @@map("inventories")
+}
+
+/// Item contado em um Inventário, com saldo de sistema x contado e a
+/// diferença resultante (gera StockMovement de ajuste ao reconciliar).
+/// `recountedQuantity` é preenchido quando uma RECONTAGEM (Inventory com
+/// `parentInventoryId`) resolve uma divergência da contagem original.
+model InventoryItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  inventoryId       String    @map("inventory_id") @db.Uuid
+  productId         String    @map("product_id") @db.Uuid
+  systemQuantity    Decimal   @map("system_quantity") @db.Decimal(15, 4)
+  countedQuantity   Decimal?  @map("counted_quantity") @db.Decimal(15, 4)
+  recountedQuantity Decimal?  @map("recounted_quantity") @db.Decimal(15, 4)
+  countedAt         DateTime? @map("counted_at")
+  countedBy         String?   @map("counted_by") @db.Uuid
+
+  inventory Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([inventoryId, productId])
+  @@index([tenantId])
+  @@map("inventory_items")
+}
+
+enum StockTransferStatus {
+  pending
+  in_transit
+  received
+  cancelled
+}
+
+/// Transferência de mercadoria entre dois Depósitos (mesma filial,
+/// filiais ou EMPRESAS distintas do mesmo tenant — Empresa/Filial são
+/// implícitas via `Warehouse.branch.company`). `reason` é o motivo
+/// estruturado (obrigatório na aplicação); `notes` são observações livres.
+model StockTransfer {
+  id                     String               @id @default(uuid()) @db.Uuid
+  tenantId               String               @map("tenant_id") @db.Uuid
+  code                   String
+  originWarehouseId      String               @map("origin_warehouse_id") @db.Uuid
+  destinationWarehouseId String               @map("destination_warehouse_id") @db.Uuid
+  status                 StockTransferStatus  @default(pending)
+  reason                 String?
+  shippedAt              DateTime?            @map("shipped_at")
+  receivedAt             DateTime?            @map("received_at")
+  notes                  String?
+  createdAt              DateTime             @default(now()) @map("created_at")
+  createdBy              String?              @map("created_by") @db.Uuid
+
+  originWarehouse      Warehouse           @relation("StockTransferOrigin", fields: [originWarehouseId], references: [id], onDelete: Restrict)
+  destinationWarehouse Warehouse           @relation("StockTransferDestination", fields: [destinationWarehouseId], references: [id], onDelete: Restrict)
+  items                StockTransferItem[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("stock_transfers")
+}
+
+/// Item de transferência — `originLocationId`/`destinationLocationId` são
+/// opcionais e preparam o endereçamento WMS fino (mover de uma posição
+/// para outra dentro do mesmo depósito); quando ausentes, a transferência
+/// é tratada na granularidade de Depósito (a mais comum).
+model StockTransferItem {
+  id                     String  @id @default(uuid()) @db.Uuid
+  tenantId               String  @map("tenant_id") @db.Uuid
+  stockTransferId        String  @map("stock_transfer_id") @db.Uuid
+  productId              String  @map("product_id") @db.Uuid
+  quantity               Decimal @db.Decimal(15, 4)
+  originLocationId       String? @map("origin_location_id") @db.Uuid
+  destinationLocationId  String? @map("destination_location_id") @db.Uuid
+
+  stockTransfer    StockTransfer    @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  product          Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  originLocation      StorageLocation? @relation("TransferItemOriginLocation", fields: [originLocationId], references: [id], onDelete: SetNull)
+  destinationLocation StorageLocation? @relation("TransferItemDestinationLocation", fields: [destinationLocationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([stockTransferId])
+  @@map("stock_transfer_items")
+}
+
+enum StockReservationSourceType {
+  sales_order
+  quote
+  service_order
+  purchase_order
+}
+
+enum StockReservationStatus {
+  active
+  released
+  consumed
+  expired
+}
+
+/// Reserva de estoque — produto reservado entra em
+/// `Stock.quantityReserved` e não pode ser vendido/comprometido novamente
+/// (a aplicação calcula disponível = `quantityOnHand - quantityReserved`).
+/// Estrutura pronta para os módulos de Pedidos/Orçamentos/OS/Compras
+/// (Sprint 07+) criarem reservas via `sourceType`/`sourceId` sem precisar
+/// de nenhuma mudança neste modelo — apenas chamar
+/// `StockReservationsService.reserve()`.
+model StockReservation {
+  id          String                      @id @default(uuid()) @db.Uuid
+  tenantId    String                      @map("tenant_id") @db.Uuid
+  productId   String                      @map("product_id") @db.Uuid
+  warehouseId String                      @map("warehouse_id") @db.Uuid
+  quantity    Decimal                     @db.Decimal(15, 4)
+  sourceType  StockReservationSourceType  @map("source_type")
+  sourceId    String                      @map("source_id") @db.Uuid
+  status      StockReservationStatus      @default(active)
+  expiresAt   DateTime?                   @map("expires_at")
+  releasedAt  DateTime?                   @map("released_at")
+  createdAt   DateTime                    @default(now()) @map("created_at")
+  createdBy   String?                     @map("created_by") @db.Uuid
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  saleItems SaleItem[]
+
+  @@index([tenantId])
+  @@index([productId, warehouseId, status])
+  @@index([sourceType, sourceId])
+  @@map("stock_reservations")
+}
+
+// =============================================================================
+// SEÇÃO 6 — COMPRAS
+// =============================================================================
+// Ciclo completo (Sprint 07): Necessidade -> PurchaseRequest (Solicitação)
+// -> PurchaseQuotation (Cotação, N fornecedores via PurchaseQuotationSupplier)
+// -> Comparativo (calculado, sem tabela própria) -> PurchaseApproval
+// -> PurchaseOrder (Pedido) -> GoodsReceipt (Recebimento) -> Conferência
+// (campos em GoodsReceiptItem) -> StockMovement (Sprint 06) -> AccountsPayable
+// (Sprint 02, já com purchaseOrderId).
+
+/// Departamento — usado pela Solicitação de Compra (centro de custo é
+/// financeiro; departamento é organizacional) e pelas regras de aprovação.
+model Department {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  purchaseRequests PurchaseRequest[]
+  approvalRules    PurchaseApprovalRule[]
+  employees        Employee[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("departments")
+}
+
+enum PurchasePriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum PurchaseRequestStatus {
+  draft
+  pending_approval
+  approved
+  rejected
+  quoting
+  converted // gerou Pedido de Compra
+  cancelled
+}
+
+/// Solicitação de Compra — a "Necessidade" que inicia todo o ciclo.
+model PurchaseRequest {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  branchId      String                 @map("branch_id") @db.Uuid
+  requesterId   String                 @map("requester_id") @db.Uuid
+  costCenterId  String?                @map("cost_center_id") @db.Uuid
+  departmentId  String?                @map("department_id") @db.Uuid
+  code          String
+  priority      PurchasePriority       @default(normal)
+  isUrgent      Boolean                @default(false) @map("is_urgent")
+  justification String
+  status        PurchaseRequestStatus  @default(draft)
+  requestedAt   DateTime               @default(now()) @map("requested_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+  createdBy     String?                @map("created_by") @db.Uuid
+
+  branch     Branch      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  costCenter CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  items       PurchaseRequestItem[]
+  quotations  PurchaseQuotation[]
+  approvals   PurchaseApproval[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([status])
+  @@map("purchase_requests")
+}
+
+model PurchaseRequestItem {
+  id                String  @id @default(uuid()) @db.Uuid
+  tenantId          String  @map("tenant_id") @db.Uuid
+  purchaseRequestId String  @map("purchase_request_id") @db.Uuid
+  productId         String  @map("product_id") @db.Uuid
+  quantity          Decimal @db.Decimal(15, 4)
+  notes             String?
+
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([purchaseRequestId])
+  @@map("purchase_request_items")
+}
+
+enum PurchaseQuotationStatus {
+  open
+  comparing
+  awarded // melhor proposta escolhida
+  cancelled
+}
+
+/// Cotação — rodada de sourcing com um ou mais fornecedores
+/// (`PurchaseQuotationSupplier`). Pode nascer de uma `PurchaseRequest` ou
+/// ser aberta diretamente (reposição automática, por exemplo).
+model PurchaseQuotation {
+  id                String                  @id @default(uuid()) @db.Uuid
+  tenantId          String                  @map("tenant_id") @db.Uuid
+  branchId          String                  @map("branch_id") @db.Uuid
+  purchaseRequestId String?                 @map("purchase_request_id") @db.Uuid
+  code              String
+  status            PurchaseQuotationStatus @default(open)
+  deadline          DateTime?               @db.Date
+  notes             String?
+  createdAt         DateTime                @default(now()) @map("created_at")
+  createdBy         String?                 @map("created_by") @db.Uuid
+
+  branch          Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+
+  suppliers PurchaseQuotationSupplier[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@map("purchase_quotations")
+}
+
+/// Resposta de UM fornecedor a uma Cotação — condições comerciais
+/// completas (frete, prazo, garantia, pagamento, desconto) usadas pelo
+/// comparativo automático.
+model PurchaseQuotationSupplier {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  quotationId     String   @map("quotation_id") @db.Uuid
+  supplierId      String   @map("supplier_id") @db.Uuid
+  freightAmount   Decimal  @default(0) @map("freight_amount") @db.Decimal(15, 2)
+  paymentTerms    String?  @map("payment_terms") // ex: "30/60/90 dias"
+  deliveryDays    Int?     @map("delivery_days")
+  warrantyDays    Int?     @map("warranty_days")
+  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(7, 4)
+  notes           String?
+  isWinner        Boolean  @default(false) @map("is_winner")
+  respondedAt     DateTime? @map("responded_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  quotation PurchaseQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  supplier  Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items     PurchaseQuotationItem[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([quotationId, supplierId])
+  @@index([tenantId])
+  @@map("purchase_quotation_suppliers")
+}
+
+model PurchaseQuotationItem {
+  id                   String  @id @default(uuid()) @db.Uuid
+  tenantId             String  @map("tenant_id") @db.Uuid
+  quotationSupplierId  String  @map("quotation_supplier_id") @db.Uuid
+  productId            String  @map("product_id") @db.Uuid
+  quantity             Decimal @db.Decimal(15, 4)
+  unitPrice            Decimal @map("unit_price") @db.Decimal(15, 4)
+  ipiRate              Decimal @default(0) @map("ipi_rate") @db.Decimal(7, 4)
+  icmsRate             Decimal @default(0) @map("icms_rate") @db.Decimal(7, 4)
+
+  quotationSupplier PurchaseQuotationSupplier @relation(fields: [quotationSupplierId], references: [id], onDelete: Cascade)
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([quotationSupplierId])
+  @@map("purchase_quotation_items")
+}
+
+/// Regra de aprovação (multi-nível, por valor e/ou departamento) — usada
+/// por `PurchaseApprovalService` para decidir quantos níveis e quais
+/// aprovadores um documento (Solicitação ou Pedido) exige.
+model PurchaseApprovalRule {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  departmentId String?  @map("department_id") @db.Uuid
+  level        Int      @default(1)
+  minValue     Decimal  @default(0) @map("min_value") @db.Decimal(15, 2)
+  maxValue     Decimal? @map("max_value") @db.Decimal(15, 2)
+  approverRole String   @map("approver_role") // espelha UserRole (Sprint 02): manager, admin...
+  isActive     Boolean  @default(true) @map("is_active")
+
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("purchase_approval_rules")
+}
+
+enum PurchaseApprovalDocumentType {
+  purchase_request
+  purchase_order
+}
+
+enum PurchaseApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+/// Histórico completo de aprovação — um registro por nível/aprovador.
+/// `signatureRef` é a estrutura preparada para assinatura digital
+/// (referência a um provedor externo — ex: certificado ICP-Brasil/DocuSign
+/// — integração de fato é trabalho de sprint futura).
+model PurchaseApproval {
+  id                String                       @id @default(uuid()) @db.Uuid
+  tenantId          String                       @map("tenant_id") @db.Uuid
+  documentType      PurchaseApprovalDocumentType @map("document_type")
+  purchaseRequestId String?                      @map("purchase_request_id") @db.Uuid
+  purchaseOrderId   String?                      @map("purchase_order_id") @db.Uuid
+  level             Int                          @default(1)
+  approverId        String                       @map("approver_id") @db.Uuid
+  status            PurchaseApprovalStatus        @default(pending)
+  comments          String?
+  signatureRef       String?                      @map("signature_ref")
+  decidedAt         DateTime?                     @map("decided_at")
+  createdAt         DateTime                      @default(now()) @map("created_at")
+
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([purchaseRequestId])
+  @@index([purchaseOrderId])
+  @@map("purchase_approvals")
+}
+
+enum PurchaseSuggestionStatus {
+  pending
+  converted
+  dismissed
+}
+
+/// Sugestão de reposição automática (algoritmo considera estoque mínimo,
+/// Curva ABC, giro, pedidos pendentes, reservas, compras em trânsito e
+/// tempo médio de entrega — todos já disponíveis via `StockAnalyticsService`
+/// e `StockRepository` da Sprint 06). Persistida para auditoria de quais
+/// sugestões foram geradas, convertidas em Pedido ou descartadas.
+model PurchaseSuggestion {
+  id                String                   @id @default(uuid()) @db.Uuid
+  tenantId          String                   @map("tenant_id") @db.Uuid
+  productId         String                   @map("product_id") @db.Uuid
+  warehouseId       String                   @map("warehouse_id") @db.Uuid
+  suggestedQuantity Decimal                  @map("suggested_quantity") @db.Decimal(15, 4)
+  reason            String                   // ex: "Abaixo do mínimo", "Giro alto + cobertura < 7 dias"
+  status            PurchaseSuggestionStatus @default(pending)
+  createdAt         DateTime                 @default(now()) @map("created_at")
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId, warehouseId, status])
+  @@map("purchase_suggestions")
+}
+
+enum PurchaseOrderStatus {
+  draft
+  sent
+  partially_received
+  received
+  cancelled
+}
+
+/// Pedido de compra ao Fornecedor.
+model PurchaseOrder {
+  id                  String              @id @default(uuid()) @db.Uuid
+  tenantId            String              @map("tenant_id") @db.Uuid
+  branchId            String              @map("branch_id") @db.Uuid
+  supplierId          String              @map("supplier_id") @db.Uuid
+  purchaseRequestId   String?             @map("purchase_request_id") @db.Uuid
+  quotationSupplierId String?             @map("quotation_supplier_id") @db.Uuid
+  parentOrderId       String?             @map("parent_order_id") @db.Uuid
+  code                String
+  status              PurchaseOrderStatus @default(draft)
+  approvedBy          String?             @map("approved_by") @db.Uuid
+  approvedAt          DateTime?           @map("approved_at")
+  issueDate           DateTime            @default(now()) @map("issue_date") @db.Date
+  expectedDate        DateTime?           @map("expected_date") @db.Date
+  freightAmount       Decimal             @default(0) @map("freight_amount") @db.Decimal(15, 2)
+  discountAmount      Decimal             @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount         Decimal             @default(0) @map("total_amount") @db.Decimal(15, 2)
+  notes               String?
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  deletedAt           DateTime?           @map("deleted_at")
+  createdBy           String?             @map("created_by") @db.Uuid
+  updatedBy           String?             @map("updated_by") @db.Uuid
+
+  branch            Branch                     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier          Supplier                   @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  purchaseRequest   PurchaseRequest?           @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  quotationSupplier PurchaseQuotationSupplier? @relation(fields: [quotationSupplierId], references: [id], onDelete: SetNull)
+  parentOrder       PurchaseOrder?             @relation("PurchaseOrderDuplication", fields: [parentOrderId], references: [id], onDelete: SetNull)
+  duplicatedOrders  PurchaseOrder[]            @relation("PurchaseOrderDuplication")
+
+  items           PurchaseOrderItem[]
+  goodsReceipts   GoodsReceipt[]
+  accountsPayable AccountsPayable[]
+  approvals       PurchaseApproval[]
+  fiscalInvoices  FiscalInvoice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([supplierId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  quantity        Decimal  @db.Decimal(15, 4)
+  receivedQuantity Decimal @default(0) @map("received_quantity") @db.Decimal(15, 4)
+  unitCost        Decimal  @map("unit_cost") @db.Decimal(15, 4)
+  discountAmount  Decimal  @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount     Decimal  @map("total_amount") @db.Decimal(15, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  goodsReceiptItems GoodsReceiptItem[]
+
+  @@index([tenantId])
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+enum GoodsReceiptStatus {
+  pending
+  confirmed
+  cancelled
+}
+
+/// Recebimento físico de mercadoria contra um Pedido de Compra. Cada
+/// recebimento gera StockMovement do tipo purchase_in ao ser confirmado.
+model GoodsReceipt {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  purchaseOrderId String             @map("purchase_order_id") @db.Uuid
+  warehouseId     String             @map("warehouse_id") @db.Uuid
+  carrierId       String?            @map("carrier_id") @db.Uuid
+  code            String
+  status          GoodsReceiptStatus @default(pending)
+  receivedAt      DateTime           @default(now()) @map("received_at")
+  invoiceNumber   String?            @map("invoice_number") // NF-e do fornecedor (número informado manualmente; XML real é Sprint Fiscal)
+  volumes         Int?
+  weightKg        Decimal?           @map("weight_kg") @db.Decimal(10, 3)
+  freightAmount   Decimal?           @map("freight_amount") @db.Decimal(15, 2)
+  driverName      String?            @map("driver_name")
+  notes           String?
+  createdBy       String?            @map("created_by") @db.Uuid
+
+  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict)
+  carrier       Carrier?           @relation(fields: [carrierId], references: [id], onDelete: SetNull)
+  items         GoodsReceiptItem[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([purchaseOrderId])
+  @@map("goods_receipts")
+}
+
+enum GoodsReceiptItemDisposition {
+  pending
+  accepted
+  partially_accepted
+  rejected
+}
+
+/// Linha de conferência: `quantity` é o que veio na nota/pedido;
+/// `acceptedQuantity`/`rejectedQuantity` são o resultado da conferência
+/// (manual ou por leitura de código de barras/QR Code — `conferredVia`
+/// documenta o canal). Soma de aceito+recusado pode ser menor que
+/// `quantity` (ainda não conferido) ou igual (conferência concluída).
+model GoodsReceiptItem {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  tenantId            String                      @map("tenant_id") @db.Uuid
+  goodsReceiptId      String                      @map("goods_receipt_id") @db.Uuid
+  purchaseOrderItemId String                      @map("purchase_order_item_id") @db.Uuid
+  productId           String                      @map("product_id") @db.Uuid
+  quantity            Decimal                     @db.Decimal(15, 4)
+  unitCost            Decimal                     @map("unit_cost") @db.Decimal(15, 4)
+  acceptedQuantity    Decimal                     @default(0) @map("accepted_quantity") @db.Decimal(15, 4)
+  rejectedQuantity    Decimal                     @default(0) @map("rejected_quantity") @db.Decimal(15, 4)
+  disposition         GoodsReceiptItemDisposition @default(pending)
+  conferredVia        String?                     @map("conferred_via") // "manual" | "barcode" | "qrcode"
+  occurrenceNotes      String?                     @map("occurrence_notes")
+  conferredAt         DateTime?                    @map("conferred_at")
+  conferredBy         String?                      @map("conferred_by") @db.Uuid
+
+  goodsReceipt      GoodsReceipt      @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseOrderItem PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id], onDelete: Restrict)
+  product           Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([goodsReceiptId])
+  @@map("goods_receipt_items")
+}
+
+// =============================================================================
+// SEÇÃO 7 — VENDAS (ORÇAMENTO → PEDIDO → VENDA), CAIXA E PAGAMENTOS
+// =============================================================================
+// Funil comercial modelado em 3 estágios: Quote (orçamento, sem compromisso
+// de estoque) -> SalesOrder (pedido confirmado, reserva estoque) -> Sale
+// (venda efetivada, gera movimentação de estoque, financeiro e NF-e).
+
+enum QuoteStatus {
+  draft
+  sent
+  approved
+  rejected
+  expired
+  converted
+}
+
+model Quote {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  branchId      String      @map("branch_id") @db.Uuid
+  customerId    String      @map("customer_id") @db.Uuid
+  salespersonId String?     @map("salesperson_id") @db.Uuid
+  code          String
+  status        QuoteStatus @default(draft)
+  validUntil    DateTime?   @map("valid_until") @db.Date
+  discountAmount Decimal    @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount   Decimal     @default(0) @map("total_amount") @db.Decimal(15, 2)
+  approvedBy    String?     @map("approved_by") @db.Uuid
+  approvedAt    DateTime?   @map("approved_at")
+  rejectedReason String?    @map("rejected_reason")
+  sentAt        DateTime?   @map("sent_at")
+  sentTo        String?     @map("sent_to") // e-mail de destino do último envio
+  notes         String?
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deletedAt     DateTime?   @map("deleted_at")
+  createdBy     String?     @map("created_by") @db.Uuid
+
+  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesperson Salesperson? @relation(fields: [salespersonId], references: [id], onDelete: SetNull)
+
+  items       QuoteItem[]
+  salesOrders SalesOrder[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([customerId])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @map("tenant_id") @db.Uuid
+  quoteId        String  @map("quote_id") @db.Uuid
+  productId      String  @map("product_id") @db.Uuid
+  quantity       Decimal @db.Decimal(15, 4)
+  unitPrice      Decimal @map("unit_price") @db.Decimal(15, 4)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount    Decimal @map("total_amount") @db.Decimal(15, 2)
+
+  quote   Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+enum SalesOrderStatus {
+  pending
+  confirmed
+  invoiced
+  cancelled
+}
+
+enum SalesOrderSeparationStatus {
+  pending
+  separating
+  separated
+  shipped
+}
+
+/// Pedido de venda confirmado — reserva estoque (Stock.quantityReserved) até
+/// ser convertido em Sale (faturado) ou cancelado. `separationStatus`
+/// cobre o fluxo físico de separação/expedição (briefing) — estrutura
+/// preparada; a operação de depósito (bipagem por item) é UI, não exige
+/// novo modelo (usa os mesmos `SalesOrderItem`).
+model SalesOrder {
+  id                String                     @id @default(uuid()) @db.Uuid
+  tenantId          String                     @map("tenant_id") @db.Uuid
+  branchId          String                     @map("branch_id") @db.Uuid
+  customerId        String                     @map("customer_id") @db.Uuid
+  salespersonId     String?                    @map("salesperson_id") @db.Uuid
+  quoteId           String?                    @map("quote_id") @db.Uuid
+  code              String
+  status            SalesOrderStatus           @default(pending)
+  separationStatus  SalesOrderSeparationStatus @default(pending) @map("separation_status")
+  discountAmount    Decimal                    @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount       Decimal                    @default(0) @map("total_amount") @db.Decimal(15, 2)
+  approvedBy        String?                    @map("approved_by") @db.Uuid
+  approvedAt        DateTime?                  @map("approved_at")
+  separatedAt       DateTime?                  @map("separated_at")
+  shippedAt         DateTime?                  @map("shipped_at")
+  notes             String?
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  deletedAt         DateTime?                  @map("deleted_at")
+  createdBy         String?                    @map("created_by") @db.Uuid
+
+  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  salesperson Salesperson? @relation(fields: [salespersonId], references: [id], onDelete: SetNull)
+  quote       Quote?       @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  items SalesOrderItem[]
+  sales Sale[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([status])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @map("tenant_id") @db.Uuid
+  salesOrderId   String  @map("sales_order_id") @db.Uuid
+  productId      String  @map("product_id") @db.Uuid
+  quantity       Decimal @db.Decimal(15, 4)
+  unitPrice      Decimal @map("unit_price") @db.Decimal(15, 4)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount    Decimal @map("total_amount") @db.Decimal(15, 2)
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([salesOrderId])
+  @@map("sales_order_items")
+}
+
+enum SaleStatus {
+  open
+  paid
+  partially_paid
+  cancelled
+  refunded
+}
+
+enum SaleMode {
+  balcony     // Venda Balcão
+  workshop    // Venda Oficina
+  quick       // Venda Rápida
+  future_sale // Venda Futura
+  telesales   // Televendas
+  pre_sale    // Pré-venda
+}
+
+/// Venda efetivada (faturada). Dispara: StockMovement (sale_out),
+/// AccountsReceivable (se a prazo), SalePayment (se à vista/cartão) e,
+/// futuramente, FiscalInvoice. `mode` é o "Modo de Operação" do PDV
+/// (briefing) — cada modo aplica regras específicas na camada de serviço
+/// (`PdvSalesService`), não no schema (ex: Venda Oficina exige
+/// `customerVehicleId`; Venda Futura não baixa estoque imediatamente).
+model Sale {
+  id               String     @id @default(uuid()) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  branchId         String     @map("branch_id") @db.Uuid
+  customerId       String     @map("customer_id") @db.Uuid
+  customerVehicleId String?   @map("customer_vehicle_id") @db.Uuid
+  salespersonId    String?    @map("salesperson_id") @db.Uuid
+  salesOrderId     String?    @map("sales_order_id") @db.Uuid
+  cashRegisterId   String?    @map("cash_register_id") @db.Uuid
+  terminalId       String?    @map("terminal_id") @db.Uuid
+  warehouseId      String?    @map("warehouse_id") @db.Uuid
+  mode             SaleMode   @default(balcony)
+  code             String
+  status           SaleStatus @default(open)
+  subtotalAmount   Decimal    @default(0) @map("subtotal_amount") @db.Decimal(15, 2)
+  discountAmount   Decimal    @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount      Decimal    @default(0) @map("total_amount") @db.Decimal(15, 2)
+  issuedAt         DateTime   @default(now()) @map("issued_at")
+  cancelledAt      DateTime?  @map("cancelled_at")
+  cancelledBy      String?    @map("cancelled_by") @db.Uuid
+  cancelReason     String?    @map("cancel_reason")
+  refundedAt       DateTime?  @map("refunded_at")
+  refundedBy       String?    @map("refunded_by") @db.Uuid
+  notes            String?
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  createdBy        String?    @map("created_by") @db.Uuid
+
+  branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer        Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customerVehicle CustomerVehicle? @relation(fields: [customerVehicleId], references: [id], onDelete: SetNull)
+  salesperson     Salesperson?    @relation(fields: [salespersonId], references: [id], onDelete: SetNull)
+  salesOrder      SalesOrder?     @relation(fields: [salesOrderId], references: [id], onDelete: SetNull)
+  cashRegister    CashRegister?   @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  terminal        PdvTerminal?    @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  warehouse       Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  items              SaleItem[]
+  payments           SalePayment[]
+  accountsReceivable AccountsReceivable[]
+  commissions        Commission[]
+  fiscalInvoices     FiscalInvoice[]
+  returns            SaleReturn[]
+  serviceOrderDelivery ServiceOrderDelivery[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([status])
+  @@index([issuedAt])
+  @@index([mode])
+  @@map("sales")
+}
+
+/// Item de venda. `discountPercent`+`discountAmount` coexistem
+/// (briefing: "Desconto (% e valor)") — a aplicação calcula um a partir
+/// do outro na entrada, mas ambos são persistidos para impressão/auditoria
+/// fiel ao que o operador viu na tela. `reservationId` aponta para a
+/// `StockReservation` (Sprint 06) consumida ao confirmar a venda — preenchido
+/// quando o item veio de um Pedido com reserva prévia.
+model SaleItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  saleId           String   @map("sale_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  quantity         Decimal  @db.Decimal(15, 4)
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(15, 4)
+  unitCost         Decimal  @map("unit_cost") @db.Decimal(15, 4) // custo no momento da venda (margem real)
+  discountPercent  Decimal  @default(0) @map("discount_percent") @db.Decimal(7, 4)
+  discountAmount   Decimal  @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  surchargeAmount  Decimal  @default(0) @map("surcharge_amount") @db.Decimal(15, 2)
+  commissionAmount Decimal  @default(0) @map("commission_amount") @db.Decimal(15, 2)
+  totalAmount      Decimal  @map("total_amount") @db.Decimal(15, 2)
+  notes            String?
+  reservationId    String?  @map("reservation_id") @db.Uuid
+
+  sale        Sale              @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reservation StockReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  returnItems SaleReturnItem[]
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+enum PaymentKind {
+  cash
+  debit_card
+  credit_card
+  pix
+  bank_slip
+  bank_transfer
+  store_credit       // Vale
+  in_house_installment // Crediário (financiamento próprio da loja, distinto de boleto bancário)
+}
+
+/// Forma de pagamento configurável por tenant (taxas de cartão, prazo de
+/// compensação) usada tanto em Sale quanto em Caixa.
+model PaymentMethod {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  kind            PaymentKind
+  name            String
+  feePercent      Decimal     @default(0) @map("fee_percent") @db.Decimal(7, 4)
+  settlementDays  Int         @default(0) @map("settlement_days")
+  isActive        Boolean     @default(true) @map("is_active")
+
+  salePayments SalePayment[]
+  reconciliations CashRegisterReconciliation[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("payment_methods")
+}
+
+/// `tefTransactionId`/`tefAuthorizationCode`/`tefNsu` são a estrutura
+/// preparada para integração TEF (briefing) — preenchidos quando o
+/// pagamento vier de uma PinPad/TEF real; hoje sempre nulos (sem
+/// integração de hardware nesta sprint).
+model SalePayment {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  saleId               String   @map("sale_id") @db.Uuid
+  paymentMethodId      String   @map("payment_method_id") @db.Uuid
+  amount               Decimal  @db.Decimal(15, 2)
+  installments         Int      @default(1)
+  paidAt               DateTime @default(now()) @map("paid_at")
+  tefTransactionId     String?  @map("tef_transaction_id")
+  tefAuthorizationCode String?  @map("tef_authorization_code")
+  tefNsu               String?  @map("tef_nsu")
+
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  cardTransactions CardTransaction[]
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@map("sale_payments")
+}
+
+enum CashRegisterStatus {
+  open
+  closed
+}
+
+/// Sessão de caixa (abertura/fechamento) por Filial e operador.
+model CashRegister {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  branchId       String              @map("branch_id") @db.Uuid
+  openedBy       String              @map("opened_by") @db.Uuid
+  closedBy       String?             @map("closed_by") @db.Uuid
+  status         CashRegisterStatus  @default(open)
+  openingAmount  Decimal             @default(0) @map("opening_amount") @db.Decimal(15, 2)
+  closingAmount  Decimal?            @map("closing_amount") @db.Decimal(15, 2)
+  expectedAmount Decimal?            @map("expected_amount") @db.Decimal(15, 2)
+  openedAt       DateTime            @default(now()) @map("opened_at")
+  closedAt       DateTime?           @map("closed_at")
+  notes          String?
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sales     Sale[]
+  movements CashMovement[]
+  reconciliations CashRegisterReconciliation[]
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@map("cash_registers")
+}
+
+enum CashMovementType {
+  sale
+  reinforcement // suprimento
+  withdrawal    // sangria
+  expense
+  adjustment
+}
+
+model CashMovement {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  cashRegisterId String           @map("cash_register_id") @db.Uuid
+  type           CashMovementType
+  amount         Decimal          @db.Decimal(15, 2)
+  description    String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+  createdBy      String?          @map("created_by") @db.Uuid
+
+  cashRegister CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([cashRegisterId])
+  @@map("cash_movements")
+}
+
+/// Conferência de fechamento de caixa (briefing: "Conferência") — uma
+/// linha por forma de pagamento, comparando o valor esperado (somatório
+/// de `SalePayment` daquele método na sessão) com o valor contado
+/// manualmente pelo operador no fechamento.
+model CashRegisterReconciliation {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  cashRegisterId  String   @map("cash_register_id") @db.Uuid
+  paymentMethodId String   @map("payment_method_id") @db.Uuid
+  expectedAmount  Decimal  @map("expected_amount") @db.Decimal(15, 2)
+  countedAmount   Decimal  @map("counted_amount") @db.Decimal(15, 2)
+  differenceAmount Decimal @map("difference_amount") @db.Decimal(15, 2)
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  cashRegister  CashRegister  @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+
+  @@unique([cashRegisterId, paymentMethodId])
+  @@index([tenantId])
+  @@map("cash_register_reconciliations")
+}
+
+/// Terminal/PDV físico (briefing: auditoria exige "Terminal"). Um por
+/// caixa/computador de balcão — usado para rastrear de onde cada venda
+/// saiu, independente de qual operador estava logado.
+model PdvTerminal {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  code      String
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sales  Sale[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("pdv_terminals")
+}
+
+enum DiscountRuleScope {
+  user
+  profile
+  customer
+  product
+  campaign
+}
+
+/// Regra de desconto máximo permitido por escopo (briefing: "Aplicar
+/// regras por Usuário, Perfil, Cliente, Produto, Campanha"). `scopeRefId`
+/// é o ID do usuário/perfil/cliente/produto/campanha conforme `scope`
+/// (nunca uma FK física — os 5 escopos apontam para tabelas diferentes,
+/// então é validado na aplicação, não no banco). Desconto acima de
+/// `requiresApprovalAbovePercent` força aprovação de um perfil superior
+/// antes de confirmar a venda — verificado por `PdvDiscountService`.
+model DiscountRule {
+  id                          String            @id @default(uuid()) @db.Uuid
+  tenantId                    String            @map("tenant_id") @db.Uuid
+  scope                       DiscountRuleScope
+  scopeRefId                  String?           @map("scope_ref_id") @db.Uuid // null = regra padrão do tenant
+  maxDiscountPercent          Decimal           @map("max_discount_percent") @db.Decimal(7, 4)
+  requiresApprovalAbovePercent Decimal?         @map("requires_approval_above_percent") @db.Decimal(7, 4)
+  isActive                    Boolean           @default(true) @map("is_active")
+  createdAt                   DateTime          @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([scope, scopeRefId])
+  @@map("discount_rules")
+}
+
+enum SaleReturnType {
+  partial
+  total
+  exchange // troca
+}
+
+enum SaleReturnStatus {
+  pending
+  approved
+  rejected
+  completed
+}
+
+/// Devolução — estrutura preparada (briefing: "Devolução parcial, total,
+/// Troca, Crédito ao cliente"). `creditIssued` controla se o valor virou
+/// crédito (`store_credit`, mesmo `PaymentKind` usado em vendas futuras) em
+/// vez de devolução em dinheiro. A entrada física no estoque (`return_in`,
+/// já existente desde a Sprint 06) é disparada por `PdvReturnsService` ao
+/// aprovar — o schema só guarda o documento, a movimentação de estoque
+/// usa o `StockService` já existente.
+model SaleReturn {
+  id           String           @id @default(uuid()) @db.Uuid
+  tenantId     String           @map("tenant_id") @db.Uuid
+  saleId       String           @map("sale_id") @db.Uuid
+  type         SaleReturnType
+  status       SaleReturnStatus @default(pending)
+  reason       String
+  creditIssued Boolean          @default(false) @map("credit_issued")
+  creditAmount Decimal          @default(0) @map("credit_amount") @db.Decimal(15, 2)
+  approvedBy   String?          @map("approved_by") @db.Uuid
+  approvedAt   DateTime?        @map("approved_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  createdBy    String?          @map("created_by") @db.Uuid
+
+  sale  Sale             @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  items SaleReturnItem[]
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@map("sale_returns")
+}
+
+model SaleReturnItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @map("tenant_id") @db.Uuid
+  saleReturnId String  @map("sale_return_id") @db.Uuid
+  saleItemId   String  @map("sale_item_id") @db.Uuid
+  productId    String  @map("product_id") @db.Uuid
+  quantity     Decimal @db.Decimal(15, 4)
+  unitPrice    Decimal @map("unit_price") @db.Decimal(15, 4)
+
+  saleReturn SaleReturn @relation(fields: [saleReturnId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([saleReturnId])
+  @@map("sale_return_items")
+}
+
+// =============================================================================
+// SEÇÃO 8 — FINANCEIRO
+// =============================================================================
+
+model CostCenter {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  code      String
+  name      String
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  accountsPayable    AccountsPayable[]
+  accountsReceivable AccountsReceivable[]
+  purchaseRequests   PurchaseRequest[]
+  allocations        CostCenterAllocation[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@map("cost_centers")
+}
+
+enum ChartOfAccountType {
+  asset
+  liability
+  equity
+  revenue
+  expense
+}
+
+/// Plano de contas hierárquico (autorrelação parent/children).
+model ChartOfAccount {
+  id        String              @id @default(uuid()) @db.Uuid
+  tenantId  String              @map("tenant_id") @db.Uuid
+  companyId String              @map("company_id") @db.Uuid
+  parentId  String?             @map("parent_id") @db.Uuid
+  code      String
+  name      String
+  type      ChartOfAccountType
+  isActive  Boolean             @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  company  Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parent   ChartOfAccount?  @relation("ChartOfAccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children ChartOfAccount[] @relation("ChartOfAccountHierarchy")
+
+  accountsPayable    AccountsPayable[]
+  accountsReceivable AccountsReceivable[]
+
+  @@unique([companyId, code])
+  @@index([tenantId])
+  @@map("chart_of_accounts")
+}
+
+enum BankAccountType {
+  checking // Conta Corrente
+  savings  // Conta Poupança
+}
+
+/// Conta bancária. `currentBalance` é um SNAPSHOT denormalizado
+/// (recalculado por `BankAccountsService.refreshBalance()` a partir de
+/// `initialBalance` + lançamentos liquidados) — nunca a fonte de verdade
+/// isolada, mesmo padrão de `Customer.creditScore` (Sprint 08) e
+/// `Product.averageCostPrice` (Sprint 05): existe para leitura O(1) no
+/// Dashboard Executivo, sem agregar em tempo real.
+model BankAccount {
+  id             String          @id @default(uuid()) @db.Uuid
+  tenantId       String          @map("tenant_id") @db.Uuid
+  companyId      String          @map("company_id") @db.Uuid
+  bankId         String?         @map("bank_id") @db.Uuid
+  bankCode       String          @map("bank_code") // código FEBRABAN
+  bankName       String          @map("bank_name")
+  agency         String
+  accountNumber  String          @map("account_number")
+  accountType    BankAccountType @default(checking) @map("account_type")
+  pixKey         String?         @map("pix_key") // chave PIX principal (legado) — múltiplas chaves em BankAccountPixKey
+  currency       String          @default("BRL")
+  initialBalance Decimal         @default(0) @map("initial_balance") @db.Decimal(15, 2)
+  currentBalance Decimal         @default(0) @map("current_balance") @db.Decimal(15, 2)
+  creditLimit    Decimal         @default(0) @map("credit_limit") @db.Decimal(15, 2)
+  balanceUpdatedAt DateTime?     @map("balance_updated_at")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  bank    Bank?   @relation(fields: [bankId], references: [id], onDelete: SetNull)
+
+  accountsPayable    AccountsPayable[]
+  accountsReceivable AccountsReceivable[]
+  pixKeys            BankAccountPixKey[]
+  statementEntries   BankStatementEntry[]
+  reconciliations    BankReconciliation[]
+  pixCharges         PixCharge[]
+  bankSlips          BankSlip[]
+
+  @@index([tenantId])
+  @@map("bank_accounts")
+}
+
+/// Catálogo GLOBAL de bancos (código FEBRABAN) — mesmo padrão de
+/// catálogos globais já existentes (Brand, Manufacturer, Unit, Sprint 02/05).
+model Bank {
+  id        String   @id @default(uuid()) @db.Uuid
+  febraban  String   @unique // ex: "001" (Banco do Brasil), "260" (Nubank)
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  bankAccounts BankAccount[]
+
+  @@map("banks")
+}
+
+/// Múltiplas chaves PIX por conta (briefing: "Chaves PIX").
+model BankAccountPixKey {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  bankAccountId String   @map("bank_account_id") @db.Uuid
+  type          String   // "cpf", "cnpj", "email", "phone", "random"
+  value         String
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([bankAccountId, value])
+  @@index([tenantId])
+  @@map("bank_account_pix_keys")
+}
+
+enum BankStatementEntryStatus {
+  unmatched   // ainda não conciliado
+  matched     // conciliado com um lançamento do ERP
+  ignored     // marcado como não relevante (ex: taxa bancária já lançada manualmente)
+}
+
+/// Linha de extrato bancário (briefing: "Extratos (estrutura)") — origem é
+/// importação OFX/CNAB (`BankImportService`, estrutura preparada) ou
+/// lançamento manual. `matchedPayableId`/`matchedReceivableId` (no máximo
+/// um dos dois) é preenchido pela conciliação.
+model BankStatementEntry {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  tenantId            String                   @map("tenant_id") @db.Uuid
+  bankAccountId       String                   @map("bank_account_id") @db.Uuid
+  postedAt            DateTime                 @map("posted_at") @db.Date
+  description         String
+  amount              Decimal                  @db.Decimal(15, 2) // positivo = crédito, negativo = débito
+  externalId           String?                 @map("external_id") // FITID do OFX, p.ex.
+  status              BankStatementEntryStatus @default(unmatched)
+  matchedPayableId    String?                  @map("matched_payable_id") @db.Uuid
+  matchedReceivableId String?                  @map("matched_receivable_id") @db.Uuid
+  importSource        String?                  @map("import_source") // "ofx" | "cnab" | "manual"
+  createdAt           DateTime                 @default(now()) @map("created_at")
+
+  bankAccount       BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  matchedPayable    AccountsPayable?    @relation(fields: [matchedPayableId], references: [id], onDelete: SetNull)
+  matchedReceivable AccountsReceivable? @relation(fields: [matchedReceivableId], references: [id], onDelete: SetNull)
+  reconciliationItems BankReconciliationItem[]
+
+  @@unique([bankAccountId, externalId])
+  @@index([tenantId])
+  @@index([bankAccountId, status])
+  @@map("bank_statement_entries")
+}
+
+enum BankReconciliationStatus {
+  open
+  closed
+}
+
+/// Sessão de conciliação bancária (briefing: "Conciliação manual,
+/// automática, Divergências, Pendências, Histórico"). Cada
+/// `BankReconciliationItem` documenta uma decisão (auto/manual) tomada
+/// sobre uma linha de extrato — o histórico completo de conciliação fica
+/// aqui, não só o resultado final em `BankStatementEntry.status`.
+model BankReconciliation {
+  id            String                    @id @default(uuid()) @db.Uuid
+  tenantId      String                    @map("tenant_id") @db.Uuid
+  bankAccountId String                    @map("bank_account_id") @db.Uuid
+  periodStart   DateTime                  @map("period_start") @db.Date
+  periodEnd     DateTime                  @map("period_end") @db.Date
+  status        BankReconciliationStatus  @default(open)
+  closedAt      DateTime?                 @map("closed_at")
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  createdBy     String?                   @map("created_by") @db.Uuid
+
+  bankAccount BankAccount              @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  items       BankReconciliationItem[]
+
+  @@index([tenantId])
+  @@map("bank_reconciliations")
+}
+
+model BankReconciliationItem {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  reconciliationId     String   @map("reconciliation_id") @db.Uuid
+  statementEntryId     String   @map("statement_entry_id") @db.Uuid
+  matchMethod          String   // "automatic" | "manual"
+  divergenceAmount     Decimal  @default(0) @map("divergence_amount") @db.Decimal(15, 2)
+  notes                String?
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  reconciliation BankReconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  statementEntry BankStatementEntry @relation(fields: [statementEntryId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("bank_reconciliation_items")
+}
+
+enum PixChargeStatus {
+  pending
+  paid
+  expired
+  cancelled
+}
+
+/// Cobrança PIX — estrutura preparada (briefing: "Geração de QR Code, PIX
+/// Copia e Cola, Confirmação automática, Webhooks"). `qrCodePayload` é o
+/// payload BR Code (texto que o QR Code/Copia-e-Cola codificam); gerado
+/// localmente (algoritmo público do Banco Central, sem PSP) — a
+/// CONFIRMAÇÃO automática via webhook de um PSP real é o que fica fora de
+/// escopo desta sprint (`confirmedAt`/`webhookPayload` só são preenchidos
+/// quando essa integração existir).
+model PixCharge {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  bankAccountId   String          @map("bank_account_id") @db.Uuid
+  receivableId    String?         @map("receivable_id") @db.Uuid
+  amount          Decimal         @db.Decimal(15, 2)
+  txId            String          @unique @map("tx_id") // identificador da transação PIX
+  qrCodePayload   String?         @map("qr_code_payload")
+  status          PixChargeStatus @default(pending)
+  expiresAt       DateTime?       @map("expires_at")
+  confirmedAt     DateTime?       @map("confirmed_at")
+  webhookPayload  String?         @map("webhook_payload") // JSON bruto recebido do PSP, quando integrado
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  bankAccount BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  receivable  AccountsReceivable? @relation(fields: [receivableId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("pix_charges")
+}
+
+enum BankSlipStatus {
+  registered
+  paid
+  overdue
+  cancelled
+}
+
+/// Boleto — estrutura preparada (briefing: "Registro, Baixa, Retorno
+/// CNAB, Remessa CNAB"). `remittanceBatchId`/`returnFileProcessedAt`
+/// documentam o ciclo de arquivo (remessa enviada ao banco, retorno
+/// processado) sem implementar o parser CNAB real nesta sprint.
+model BankSlip {
+  id                   String         @id @default(uuid()) @db.Uuid
+  tenantId             String         @map("tenant_id") @db.Uuid
+  bankAccountId        String         @map("bank_account_id") @db.Uuid
+  receivableId         String?        @map("receivable_id") @db.Uuid
+  ourNumber            String?        @map("our_number") // "nosso número" do banco
+  barcodeNumber        String?        @map("barcode_number")
+  amount               Decimal        @db.Decimal(15, 2)
+  dueDate              DateTime       @map("due_date") @db.Date
+  status               BankSlipStatus @default(registered)
+  remittanceBatchId    String?        @map("remittance_batch_id")
+  returnFileProcessedAt DateTime?     @map("return_file_processed_at")
+  createdAt            DateTime       @default(now()) @map("created_at")
+
+  bankAccount BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  receivable  AccountsReceivable? @relation(fields: [receivableId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("bank_slips")
+}
+
+/// Operadora de cartão (briefing: "Operadoras, Taxas").
+model CardOperator {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  name              String
+  debitFeePercent   Decimal  @default(0) @map("debit_fee_percent") @db.Decimal(7, 4)
+  creditFeePercent  Decimal  @default(0) @map("credit_fee_percent") @db.Decimal(7, 4)
+  settlementDays    Int      @default(1) @map("settlement_days")
+  anticipationFeePercent Decimal @default(0) @map("anticipation_fee_percent") @db.Decimal(7, 4)
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  transactions CardTransaction[]
+
+  @@index([tenantId])
+  @@map("card_operators")
+}
+
+enum CardTransactionStatus {
+  pending_settlement // recebimento futuro
+  settled
+  anticipated        // antecipado (recebido antes do prazo, com taxa)
+  cancelled
+}
+
+/// Recebível de cartão (briefing: "Antecipações, Parcelamentos,
+/// Recebimentos futuros"). Uma linha por parcela — `salePaymentId` aponta
+/// para o pagamento do PDV (Sprint 09, `SalePayment`) que originou este
+/// recebível.
+model CardTransaction {
+  id              String                 @id @default(uuid()) @db.Uuid
+  tenantId        String                 @map("tenant_id") @db.Uuid
+  cardOperatorId  String                 @map("card_operator_id") @db.Uuid
+  salePaymentId   String?                @map("sale_payment_id") @db.Uuid
+  installmentNumber Int                  @default(1) @map("installment_number")
+  totalInstallments Int                  @default(1) @map("total_installments")
+  grossAmount     Decimal                @map("gross_amount") @db.Decimal(15, 2)
+  feeAmount       Decimal                @default(0) @map("fee_amount") @db.Decimal(15, 2)
+  netAmount       Decimal                @map("net_amount") @db.Decimal(15, 2)
+  expectedSettlementDate DateTime        @map("expected_settlement_date") @db.Date
+  status          CardTransactionStatus  @default(pending_settlement)
+  anticipatedAt   DateTime?              @map("anticipated_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  cardOperator CardOperator @relation(fields: [cardOperatorId], references: [id], onDelete: Restrict)
+  salePayment  SalePayment? @relation(fields: [salePaymentId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status, expectedSettlementDate])
+  @@map("card_transactions")
+}
+
+enum PayableStatus {
+  open
+  paid
+  partially_paid
+  overdue
+  cancelled
+}
+
+/// Conta a pagar. Cada linha representa uma parcela (1/N) — parcelas de um
+/// mesmo título compartilham `parentId` apontando para a parcela 1.
+/// `renegotiatedFromId` documenta a renegociação (esta linha substitui a
+/// original, que é marcada `cancelled`, nunca apagada). `reversedAt`/
+/// `reversedBy` documentam estorno de uma baixa já feita — distinto de
+/// cancelamento de título (que nunca foi pago).
+model AccountsPayable {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @map("tenant_id") @db.Uuid
+  companyId         String        @map("company_id") @db.Uuid
+  supplierId        String?       @map("supplier_id") @db.Uuid
+  purchaseOrderId   String?       @map("purchase_order_id") @db.Uuid
+  costCenterId      String?       @map("cost_center_id") @db.Uuid
+  chartOfAccountId  String?       @map("chart_of_account_id") @db.Uuid
+  bankAccountId     String?       @map("bank_account_id") @db.Uuid
+  parentId          String?       @map("parent_id") @db.Uuid
+  renegotiatedFromId String?      @map("renegotiated_from_id") @db.Uuid
+  documentNumber    String?       @map("document_number")
+  installmentNumber Int           @default(1) @map("installment_number")
+  totalInstallments Int           @default(1) @map("total_installments")
+  amount            Decimal       @db.Decimal(15, 2)
+  paidAmount        Decimal       @default(0) @map("paid_amount") @db.Decimal(15, 2)
+  interestAmount    Decimal       @default(0) @map("interest_amount") @db.Decimal(15, 2)
+  fineAmount        Decimal       @default(0) @map("fine_amount") @db.Decimal(15, 2)
+  discountAmount    Decimal       @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  currency          String        @default("BRL")
+  dueDate           DateTime      @map("due_date") @db.Date
+  scheduledAt       DateTime?     @map("scheduled_at") // agendamento de pagamento
+  paidAt            DateTime?     @map("paid_at")
+  reversedAt        DateTime?     @map("reversed_at")
+  reversedBy        String?       @map("reversed_by") @db.Uuid
+  status            PayableStatus @default(open)
+  notes             String?
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  createdBy         String?       @map("created_by") @db.Uuid
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  purchaseOrder  PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  costCenter     CostCenter?     @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: SetNull)
+  bankAccount    BankAccount?    @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  parent         AccountsPayable? @relation("PayableInstallments", fields: [parentId], references: [id], onDelete: Cascade)
+  installments   AccountsPayable[] @relation("PayableInstallments")
+  renegotiatedFrom AccountsPayable?  @relation("PayableRenegotiation", fields: [renegotiatedFromId], references: [id], onDelete: SetNull)
+  renegotiations   AccountsPayable[] @relation("PayableRenegotiation")
+  statementMatches BankStatementEntry[]
+  allocations      CostCenterAllocation[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([supplierId])
+  @@index([status, dueDate])
+  @@map("accounts_payable")
+}
+
+enum ReceivableStatus {
+  open
+  paid
+  partially_paid
+  overdue
+  cancelled
+}
+
+/// Conta a receber. Mesma lógica de parcelamento/renegociação/estorno de AccountsPayable.
+model AccountsReceivable {
+  id                String           @id @default(uuid()) @db.Uuid
+  tenantId          String           @map("tenant_id") @db.Uuid
+  companyId         String           @map("company_id") @db.Uuid
+  customerId        String?          @map("customer_id") @db.Uuid
+  saleId            String?          @map("sale_id") @db.Uuid
+  costCenterId      String?          @map("cost_center_id") @db.Uuid
+  chartOfAccountId  String?          @map("chart_of_account_id") @db.Uuid
+  bankAccountId     String?          @map("bank_account_id") @db.Uuid
+  parentId          String?          @map("parent_id") @db.Uuid
+  renegotiatedFromId String?         @map("renegotiated_from_id") @db.Uuid
+  documentNumber    String?          @map("document_number")
+  installmentNumber Int              @default(1) @map("installment_number")
+  totalInstallments Int              @default(1) @map("total_installments")
+  amount            Decimal          @db.Decimal(15, 2)
+  receivedAmount    Decimal          @default(0) @map("received_amount") @db.Decimal(15, 2)
+  interestAmount    Decimal          @default(0) @map("interest_amount") @db.Decimal(15, 2)
+  fineAmount        Decimal          @default(0) @map("fine_amount") @db.Decimal(15, 2)
+  discountAmount    Decimal          @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  currency          String           @default("BRL")
+  dueDate           DateTime         @map("due_date") @db.Date
+  receivedAt        DateTime?        @map("received_at")
+  reversedAt        DateTime?        @map("reversed_at")
+  reversedBy        String?          @map("reversed_by") @db.Uuid
+  status            ReceivableStatus @default(open)
+  notes             String?
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  createdBy         String?          @map("created_by") @db.Uuid
+
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  customer       Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sale           Sale?           @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  costCenter     CostCenter?     @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  chartOfAccount ChartOfAccount? @relation(fields: [chartOfAccountId], references: [id], onDelete: SetNull)
+  bankAccount    BankAccount?    @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  parent         AccountsReceivable?   @relation("ReceivableInstallments", fields: [parentId], references: [id], onDelete: Cascade)
+  installments   AccountsReceivable[] @relation("ReceivableInstallments")
+  renegotiatedFrom AccountsReceivable?   @relation("ReceivableRenegotiation", fields: [renegotiatedFromId], references: [id], onDelete: SetNull)
+  renegotiations   AccountsReceivable[] @relation("ReceivableRenegotiation")
+  statementMatches BankStatementEntry[]
+  pixCharges       PixCharge[]
+  bankSlips        BankSlip[]
+  allocations      CostCenterAllocation[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([customerId])
+  @@index([status, dueDate])
+  @@map("accounts_receivable")
+}
+
+enum CommissionStatus {
+  pending
+  approved
+  paid
+  cancelled
+}
+
+/// Comissão calculada para Vendedor (sobre Sale) ou Mecânico (sobre
+/// ServiceOrder) — exatamente um dos dois deve estar preenchido.
+model Commission {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  salespersonId String?          @map("salesperson_id") @db.Uuid
+  mechanicId    String?          @map("mechanic_id") @db.Uuid
+  saleId        String?          @map("sale_id") @db.Uuid
+  serviceOrderId String?         @map("service_order_id") @db.Uuid
+  baseAmount    Decimal          @map("base_amount") @db.Decimal(15, 2)
+  rate          Decimal          @db.Decimal(7, 4)
+  amount        Decimal          @db.Decimal(15, 2)
+  status        CommissionStatus @default(pending)
+  paidAt        DateTime?        @map("paid_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  salesperson  Salesperson?  @relation(fields: [salespersonId], references: [id], onDelete: SetNull)
+  mechanic     Mechanic?     @relation(fields: [mechanicId], references: [id], onDelete: SetNull)
+  sale         Sale?         @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  serviceOrder ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([salespersonId])
+  @@index([mechanicId])
+  @@index([status])
+  @@map("commissions")
+}
+
+/// Rateio de um título entre múltiplos Centros de Custo (briefing:
+/// "Rateio"). A soma de `percent` de todas as linhas de um mesmo título
+/// (`payableId` XOR `receivableId`) deve fechar em 100% — validado em
+/// `CostCenterAllocationsService`, não no banco (Postgres não tem CHECK
+/// agregando múltiplas linhas facilmente sem trigger).
+model CostCenterAllocation {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  costCenterId String   @map("cost_center_id") @db.Uuid
+  payableId    String?  @map("payable_id") @db.Uuid
+  receivableId String?  @map("receivable_id") @db.Uuid
+  percent      Decimal  @db.Decimal(7, 4)
+  amount       Decimal  @db.Decimal(15, 2) // denormalizado: percent% do valor do título, recalculado a cada alteração do título
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  costCenter CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+  payable    AccountsPayable?    @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  receivable AccountsReceivable? @relation(fields: [receivableId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("cost_center_allocations")
+}
+
+enum CommissionRuleScope {
+  salesperson
+  mechanic
+  product
+  service
+  campaign
+}
+
+/// Regra de comissão configurável (briefing: "Por vendedor, Por mecânico,
+/// Por produto, Por serviço, Por campanha"). Mesmo padrão de
+/// `DiscountRule` (Sprint 09): `scopeRefId` aponta para a tabela
+/// correspondente ao `scope` (Salesperson/Mechanic/Product/Service/
+/// CrmCampaign), validado na aplicação. Quando múltiplas regras se
+/// aplicam à mesma comissão, `CommissionsService` usa a de MAIOR
+/// prioridade (`priority`), não soma todas.
+model CommissionRule {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  scope       CommissionRuleScope
+  scopeRefId  String?             @map("scope_ref_id") @db.Uuid // null = regra padrão do tenant para o scope
+  ratePercent Decimal             @map("rate_percent") @db.Decimal(7, 4)
+  priority    Int                 @default(0)
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([scope, scopeRefId])
+  @@map("commission_rules")
+}
+
+enum ProjectionScenario {
+  realistic
+  optimistic
+  pessimistic
+}
+
+/// Projeção financeira manual (briefing: "Fluxo futuro, Receitas
+/// previstas, Despesas previstas, Simulações, Cenários") — DISTINTA do
+/// fluxo previsto calculado a partir de AccountsPayable/AccountsReceivable
+/// reais já com vencimento definido (`CashFlowService.getProjected()`):
+/// esta tabela é para projeção MANUAL/hipotética (ex: "e se eu contratar
+/// 2 vendedores a mais?"), que ainda não existe como título nenhum.
+model FinancialProjection {
+  id           String             @id @default(uuid()) @db.Uuid
+  tenantId     String             @map("tenant_id") @db.Uuid
+  companyId    String             @map("company_id") @db.Uuid
+  name         String
+  scenario     ProjectionScenario @default(realistic)
+  referenceMonth DateTime         @map("reference_month") @db.Date
+  projectedRevenue Decimal        @default(0) @map("projected_revenue") @db.Decimal(15, 2)
+  projectedExpense Decimal        @default(0) @map("projected_expense") @db.Decimal(15, 2)
+  notes        String?
+  createdAt    DateTime           @default(now()) @map("created_at")
+  createdBy    String?            @map("created_by") @db.Uuid
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("financial_projections")
+}
+
+// =============================================================================
+// SEÇÃO 9 — OFICINA (ORDENS DE SERVIÇO)
+// =============================================================================
+
+enum ServiceCategory {
+  maintenance   // Manutenção
+  repair        // Reparo
+  diagnostics   // Diagnóstico
+  bodywork      // Funilaria/Pintura
+  electrical    // Elétrica
+  other
+}
+
+/// Catálogo de serviços de mão de obra (ex: "Troca de óleo", "Alinhamento").
+/// `specialty` casa com `Mechanic.specialties` (Sprint 08) para sugerir o
+/// mecânico apto a executar o serviço — comparação simples de string, sem
+/// nova FK (especialidade é texto livre em ambos os lados desde a Sprint
+/// 08, mantido aqui para não reescrever aquele módulo).
+model Service {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @map("tenant_id") @db.Uuid
+  code             String?
+  name             String
+  description      String?
+  category         ServiceCategory @default(maintenance)
+  specialty        String?
+  standardPrice    Decimal         @default(0) @map("standard_price") @db.Decimal(15, 2)
+  estimatedMinutes Int?            @map("estimated_minutes")
+  warrantyDays     Int             @default(90) @map("warranty_days")
+  isActive         Boolean         @default(true) @map("is_active")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  deletedAt        DateTime?       @map("deleted_at")
+
+  serviceOrderServices ServiceOrderService[]
+  warranties           Warranty[]
+  workshopAppointments WorkshopAppointment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([category])
+  @@map("services")
+}
+
+enum ServiceOrderStatus {
+  open
+  diagnosing
+  awaiting_approval
+  approved
+  in_progress
+  awaiting_parts
+  completed
+  delivered
+  cancelled
+}
+
+enum ServiceOrderPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+/// Box/elevador físico da oficina (briefing: "Agendamento por box").
+model ServiceBox {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  code      String
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  branch        Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  serviceOrders ServiceOrder[]
+  appointments  WorkshopAppointment[]
+
+  @@unique([tenantId, branchId, code])
+  @@index([tenantId])
+  @@map("service_boxes")
+}
+
+/// Ordem de Serviço da oficina — vincula Cliente, Veículo, Mecânico,
+/// serviços executados (mão de obra) e peças utilizadas (Product).
+/// `consultantId` é o atendente/consultor responsável (distinto do
+/// `mechanicId`, que executa) — aponta para `Employee` (Sprint 08), já que
+/// nem todo consultor é necessariamente um `Salesperson`/`Mechanic`
+/// especializado. Campos de Check-in (briefing: combustível, fotos,
+/// vídeos, assinatura, objetos, danos) ficam no model próprio
+/// `ServiceOrderCheckIn` — mantém `ServiceOrder` focado no ciclo de
+/// status, sem crescer indefinidamente.
+model ServiceOrder {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  branchId        String                @map("branch_id") @db.Uuid
+  customerId      String               @map("customer_id") @db.Uuid
+  vehicleId       String               @map("vehicle_id") @db.Uuid
+  mechanicId      String?              @map("mechanic_id") @db.Uuid
+  consultantId    String?              @map("consultant_id") @db.Uuid
+  boxId           String?              @map("box_id") @db.Uuid
+  appointmentId   String?              @unique @map("appointment_id") @db.Uuid
+  code            String
+  status          ServiceOrderStatus   @default(open)
+  priority        ServiceOrderPriority @default(normal)
+  complaint       String?              // queixa relatada pelo cliente
+  technicalDiagnosis String?           @map("technical_diagnosis")
+  proposedSolution   String?           @map("proposed_solution")
+  estimatedMinutes   Int?              @map("estimated_minutes")
+  odometerKm      Int?                 @map("odometer_km")
+  laborAmount     Decimal              @default(0) @map("labor_amount") @db.Decimal(15, 2)
+  partsAmount     Decimal              @default(0) @map("parts_amount") @db.Decimal(15, 2)
+  discountAmount  Decimal              @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  totalAmount     Decimal              @default(0) @map("total_amount") @db.Decimal(15, 2)
+  expectedDeliveryAt DateTime?         @map("expected_delivery_at")
+  openedAt        DateTime             @default(now()) @map("opened_at")
+  approvedAt      DateTime?            @map("approved_at")
+  completedAt     DateTime?            @map("completed_at")
+  deliveredAt     DateTime?            @map("delivered_at")
+  cancelledAt     DateTime?            @map("cancelled_at")
+  cancelReason    String?              @map("cancel_reason")
+  isRework        Boolean              @default(false) @map("is_rework") // retrabalho — ligado a uma OS anterior via `reworkOfId`
+  reworkOfId      String?              @map("rework_of_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  createdBy       String?              @map("created_by") @db.Uuid
+
+  branch     Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer   Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle    CustomerVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  mechanic   Mechanic?       @relation(fields: [mechanicId], references: [id], onDelete: SetNull)
+  consultant Employee?       @relation(fields: [consultantId], references: [id], onDelete: SetNull)
+  box        ServiceBox?     @relation(fields: [boxId], references: [id], onDelete: SetNull)
+  appointment WorkshopAppointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  reworkOf   ServiceOrder?   @relation("ServiceOrderRework", fields: [reworkOfId], references: [id], onDelete: SetNull)
+  reworks    ServiceOrder[]  @relation("ServiceOrderRework")
+
+  services      ServiceOrderService[]
+  parts         ServiceOrderPart[]
+  checklists    ServiceOrderChecklist[]
+  warranties    Warranty[]
+  commissions   Commission[]
+  timeEntries   MechanicTimeEntry[]
+  checkIn       ServiceOrderCheckIn?
+  delivery      ServiceOrderDelivery?
+  statusHistory ServiceOrderStatusHistory[]
+  satisfactionSurvey CustomerSatisfactionSurvey?
+  followUps     ServiceFollowUp[]
+  fiscalInvoices FiscalInvoice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([vehicleId])
+  @@index([status])
+  @@index([priority])
+  @@map("service_orders")
+}
+
+/// Histórico de mudança de status da OS (briefing: "Histórico completo").
+/// Complementa o `AuditLog` genérico com uma trilha específica e tipada do
+/// ciclo Agendamento→Entrega, mais simples de exibir numa timeline de UI.
+model ServiceOrderStatusHistory {
+  id             String             @id @default(uuid()) @db.Uuid
+  tenantId       String             @map("tenant_id") @db.Uuid
+  serviceOrderId String             @map("service_order_id") @db.Uuid
+  fromStatus     ServiceOrderStatus?  @map("from_status")
+  toStatus       ServiceOrderStatus  @map("to_status")
+  notes          String?
+  changedAt      DateTime           @default(now()) @map("changed_at")
+  changedBy      String?            @map("changed_by") @db.Uuid
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([serviceOrderId])
+  @@map("service_order_status_history")
+}
+
+model ServiceOrderService {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  serviceOrderId String   @map("service_order_id") @db.Uuid
+  serviceId      String   @map("service_id") @db.Uuid
+  quantity       Int      @default(1)
+  unitPrice      Decimal  @map("unit_price") @db.Decimal(15, 2)
+  totalAmount    Decimal  @map("total_amount") @db.Decimal(15, 2)
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([serviceOrderId])
+  @@map("service_order_services")
+}
+
+/// Peça aplicada na OS — gera StockMovement (service_order_out) ao confirmar.
+model ServiceOrderPart {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @map("tenant_id") @db.Uuid
+  serviceOrderId String  @map("service_order_id") @db.Uuid
+  productId      String  @map("product_id") @db.Uuid
+  quantity       Decimal @db.Decimal(15, 4)
+  unitPrice      Decimal @map("unit_price") @db.Decimal(15, 4)
+  totalAmount    Decimal @map("total_amount") @db.Decimal(15, 2)
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([serviceOrderId])
+  @@map("service_order_parts")
+}
+
+/// Modelo de checklist reutilizável (ex: "Checklist de Entrada", "Checklist
+/// de Revisão"), com itens padronizados.
+model ChecklistTemplate {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  items              ChecklistTemplateItem[]
+  serviceOrderChecklists ServiceOrderChecklist[]
+
+  @@index([tenantId])
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateItem {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  templateId String @map("template_id") @db.Uuid
+  label      String
+  position   Int    @default(0)
+
+  template ChecklistTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  results  ServiceOrderChecklistItem[]
+
+  @@index([tenantId])
+  @@map("checklist_template_items")
+}
+
+/// Instância de checklist preenchida para uma Ordem de Serviço específica.
+model ServiceOrderChecklist {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  serviceOrderId String   @map("service_order_id") @db.Uuid
+  templateId     String   @map("template_id") @db.Uuid
+  filledAt       DateTime @default(now()) @map("filled_at")
+  filledBy       String?  @map("filled_by") @db.Uuid
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  template     ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  items        ServiceOrderChecklistItem[]
+
+  @@index([tenantId])
+  @@index([serviceOrderId])
+  @@map("service_order_checklists")
+}
+
+enum ChecklistItemResult {
+  ok
+  attention
+  not_applicable
+  not_checked
+}
+
+model ServiceOrderChecklistItem {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  checklistId      String              @map("checklist_id") @db.Uuid
+  templateItemId   String              @map("template_item_id") @db.Uuid
+  result           ChecklistItemResult @default(not_checked)
+  notes            String?
+
+  checklist    ServiceOrderChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  templateItem ChecklistTemplateItem @relation(fields: [templateItemId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@map("service_order_checklist_items")
+}
+
+enum WarrantyStatus {
+  active
+  expired
+  claimed
+  voided
+}
+
+enum WarrantyType {
+  part    // Garantia de peça
+  service // Garantia de serviço
+}
+
+/// Garantia de peça e/ou serviço vinculada a uma Ordem de Serviço.
+/// `claimedAt`/`claimCost`/`claimNotes` registram o acionamento (briefing:
+/// "Acionamentos, Custos") — uma garantia pode ser acionada uma vez
+/// (`status: claimed`); reincidência gera uma OS de retrabalho
+/// (`ServiceOrder.isRework`/`reworkOfId`), não um segundo acionamento na
+/// mesma linha.
+model Warranty {
+  id             String         @id @default(uuid()) @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  serviceOrderId String         @map("service_order_id") @db.Uuid
+  type           WarrantyType   @default(service)
+  productId      String?        @map("product_id") @db.Uuid // preenchido quando type = part
+  serviceId      String?        @map("service_id") @db.Uuid // preenchido quando type = service
+  description    String
+  termDays       Int            @map("term_days")
+  startDate      DateTime       @map("start_date") @db.Date
+  endDate        DateTime       @map("end_date") @db.Date
+  status         WarrantyStatus @default(active)
+  claimedAt      DateTime?      @map("claimed_at")
+  claimCost      Decimal?       @map("claim_cost") @db.Decimal(15, 2)
+  claimNotes     String?        @map("claim_notes")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  product      Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  service      Service?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([serviceOrderId])
+  @@index([status, endDate])
+  @@map("warranties")
+}
+
+/// Check-in da OS (briefing: "Cliente, Veículo, Quilometragem,
+/// Combustível, Fotos, Vídeos, Assinatura digital, Objetos deixados no
+/// veículo, Danos existentes, Observações"). Um por OS (1:1) — fotos/
+/// vídeos/assinatura usam `Attachment` (entity="service_order_checkin"),
+/// reaproveitando o upload + versionamento já existentes (Sprint 08),
+/// nunca um campo de URL solto aqui.
+model ServiceOrderCheckIn {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  serviceOrderId String   @unique @map("service_order_id") @db.Uuid
+  odometerKm     Int?     @map("odometer_km")
+  fuelLevel      Int?     @map("fuel_level") // percentual 0-100
+  itemsLeftInVehicle String? @map("items_left_in_vehicle")
+  existingDamages    String? @map("existing_damages")
+  notes          String?
+  signatureUrl   String?  @map("signature_url") // assinatura digital do cliente (imagem/base64 já hospedada via Supabase Storage)
+  checkedInAt    DateTime @default(now()) @map("checked_in_at")
+  checkedInBy    String?  @map("checked_in_by") @db.Uuid
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("service_order_check_ins")
+}
+
+/// Entrega da OS (briefing: "Data, Hora, Responsável, Assinatura digital,
+/// Fotos, Pagamento (integração)"). `salePaymentReference`/`saleId` é o
+/// ponto de integração com o PDV (Sprint 09) — a OS gera uma venda/
+/// cobrança ao ser entregue, sem duplicar o motor de pagamento.
+model ServiceOrderDelivery {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  serviceOrderId String    @unique @map("service_order_id") @db.Uuid
+  saleId         String?   @map("sale_id") @db.Uuid
+  signatureUrl   String?   @map("signature_url")
+  deliveredAt    DateTime  @default(now()) @map("delivered_at")
+  deliveredBy    String?   @map("delivered_by") @db.Uuid
+  notes          String?
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  sale         Sale?        @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("service_order_deliveries")
+}
+
+enum WorkshopAppointmentStatus {
+  scheduled
+  confirmed
+  waitlisted // Lista de espera (briefing)
+  checked_in
+  rescheduled
+  cancelled
+  no_show
+}
+
+/// Agenda da Oficina (briefing: "Agendamento por mecânico, por box, por
+/// serviço, Reagendamento, Cancelamento, Confirmação, Lista de espera,
+/// Agenda diária/semanal/mensal"). Distinto do `Appointment` genérico do
+/// CRM (Sprint 08, usado para ligações/visitas comerciais) — este é
+/// especializado em agenda de atendimento de oficina, com mecânico/box/
+/// serviço/veículo já tipados; vira uma `ServiceOrder` ao fazer check-in
+/// (`ServiceOrder.appointmentId`).
+model WorkshopAppointment {
+  id              String                     @id @default(uuid()) @db.Uuid
+  tenantId        String                     @map("tenant_id") @db.Uuid
+  branchId        String                     @map("branch_id") @db.Uuid
+  customerId      String                     @map("customer_id") @db.Uuid
+  vehicleId       String?                    @map("vehicle_id") @db.Uuid
+  mechanicId      String?                    @map("mechanic_id") @db.Uuid
+  boxId           String?                    @map("box_id") @db.Uuid
+  serviceId       String?                    @map("service_id") @db.Uuid
+  status          WorkshopAppointmentStatus  @default(scheduled)
+  scheduledAt     DateTime                   @map("scheduled_at")
+  durationMinutes Int                        @default(60) @map("duration_minutes")
+  rescheduledFromId String?                  @map("rescheduled_from_id") @db.Uuid
+  cancelReason    String?                    @map("cancel_reason")
+  notes           String?
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  createdBy       String?                    @map("created_by") @db.Uuid
+
+  branch   Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle  CustomerVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  mechanic Mechanic?       @relation(fields: [mechanicId], references: [id], onDelete: SetNull)
+  box      ServiceBox?     @relation(fields: [boxId], references: [id], onDelete: SetNull)
+  service  Service?        @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  rescheduledFrom WorkshopAppointment?  @relation("AppointmentReschedule", fields: [rescheduledFromId], references: [id], onDelete: SetNull)
+  rescheduledTo   WorkshopAppointment[] @relation("AppointmentReschedule")
+  serviceOrder    ServiceOrder?
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([scheduledAt])
+  @@index([mechanicId])
+  @@index([boxId])
+  @@map("workshop_appointments")
+}
+
+/// Pesquisa de satisfação + NPS (briefing: "Pesquisa de satisfação, NPS").
+/// Uma por OS — `npsScore` (0-10) classifica automaticamente em
+/// Detrator(0-6)/Neutro(7-8)/Promotor(9-10) na camada de aplicação
+/// (`PostSaleService`), sem campo de classificação redundante no schema.
+model CustomerSatisfactionSurvey {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  serviceOrderId String    @unique @map("service_order_id") @db.Uuid
+  npsScore       Int?      @map("nps_score")
+  satisfactionScore Int?   @map("satisfaction_score") // 1-5
+  comments       String?
+  respondedAt    DateTime? @map("responded_at")
+  sentAt         DateTime  @default(now()) @map("sent_at")
+
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("customer_satisfaction_surveys")
+}
+
+enum ServiceFollowUpType {
+  revision_reminder // Lembrete de revisão
+  scheduled_return  // Retorno programado
+  satisfaction_call
+}
+
+enum ServiceFollowUpStatus {
+  pending
+  completed
+  cancelled
+}
+
+/// Pós-venda (briefing: "Retorno programado, Lembrete de revisão,
+/// Histórico"). `dueDate` é quando o contato deve ser feito (ex: 6 meses
+/// após a troca de óleo) — geração automática de `revision_reminder` é
+/// responsabilidade de `PostSaleService.scheduleRevisionReminder()`,
+/// chamado ao finalizar uma OS com `Service` de manutenção.
+model ServiceFollowUp {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @map("tenant_id") @db.Uuid
+  serviceOrderId String?               @map("service_order_id") @db.Uuid
+  customerId     String                @map("customer_id") @db.Uuid
+  type           ServiceFollowUpType
+  status         ServiceFollowUpStatus @default(pending)
+  dueDate        DateTime              @db.Date
+  completedAt    DateTime?             @map("completed_at")
+  notes          String?
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  serviceOrder ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([dueDate, status])
+  @@map("service_follow_ups")
+}
+
+enum AttachmentKind {
+  photo
+  document
+  video
+  other
+}
+
+/// Anexo genérico (fotos de OS/veículo, documentos, comprovantes). Usa o
+/// padrão entity/entityId (mesma convenção do AuditLog) por ser, por
+/// natureza, anexável a qualquer entidade do sistema sem explosão de FKs.
+/// `version`/`previousVersionId` implementam o versionamento pedido no
+/// briefing: o upload de uma nova versão do "mesmo" documento cria um
+/// novo registro apontando para o anterior, nunca sobrescreve.
+model Attachment {
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  entity            String         // ex: "service_order", "customer_vehicle", "product", "customer", "supplier", "employee"
+  entityId          String         @map("entity_id") @db.Uuid
+  kind              AttachmentKind @default(document)
+  url               String
+  fileName          String?        @map("file_name")
+  mimeType          String?        @map("mime_type")
+  sizeBytes         Int?           @map("size_bytes")
+  version           Int            @default(1)
+  previousVersionId String?        @map("previous_version_id") @db.Uuid
+  uploadedBy        String?        @map("uploaded_by") @db.Uuid
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  previousVersion Attachment?  @relation("AttachmentVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersions    Attachment[] @relation("AttachmentVersionHistory")
+
+  @@index([tenantId])
+  @@index([entity, entityId])
+  @@map("attachments")
+}
+
+// =============================================================================
+// SEÇÃO 9B — LGPD (PROTEÇÃO DE DADOS PESSOAIS)
+// =============================================================================
+
+enum LegalBasis {
+  consent              // Consentimento
+  contract             // Execução de contrato
+  legal_obligation     // Obrigação legal
+  legitimate_interest  // Legítimo interesse
+}
+
+enum ConsentStatus {
+  given
+  revoked
+}
+
+/// Consentimento LGPD — um registro por finalidade de uso de dado
+/// (briefing: "Consentimentos, Base legal, Revogação, Histórico"). Nunca
+/// um UPDATE: revogar cria um novo registro com `status: revoked`,
+/// preservando o histórico completo de consentimentos ao longo do tempo.
+model DataConsent {
+  id          String        @id @default(uuid()) @db.Uuid
+  tenantId    String        @map("tenant_id") @db.Uuid
+  customerId  String?       @map("customer_id") @db.Uuid
+  supplierId  String?       @map("supplier_id") @db.Uuid
+  purpose     String        // finalidade (ex: "marketing", "compartilhamento com parceiros")
+  legalBasis  LegalBasis    @map("legal_basis")
+  status      ConsentStatus @default(given)
+  givenAt     DateTime      @default(now()) @map("given_at")
+  revokedAt   DateTime?     @map("revoked_at")
+  ipAddress   String?       @map("ip_address")
+  createdBy   String?       @map("created_by") @db.Uuid
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@map("data_consents")
+}
+
+enum DataSubjectRequestType {
+  export        // Exportação de dados
+  deletion      // Exclusão lógica
+  anonymization // Anonimização
+  correction    // Correção de dados
+}
+
+enum DataSubjectRequestStatus {
+  pending
+  in_progress
+  completed
+  rejected
+}
+
+/// Solicitação formal do titular dos dados (briefing: "Exportação de
+/// dados, Exclusão lógica" + anonimização). Registro de auditoria do
+/// atendimento à solicitação — nunca executado automaticamente sem
+/// rastro: `completedAt`/`completedBy` documentam quem e quando atendeu.
+model DataSubjectRequest {
+  id           String                     @id @default(uuid()) @db.Uuid
+  tenantId     String                     @map("tenant_id") @db.Uuid
+  customerId   String?                    @map("customer_id") @db.Uuid
+  type         DataSubjectRequestType
+  status       DataSubjectRequestStatus   @default(pending)
+  requestedAt  DateTime                   @default(now()) @map("requested_at")
+  completedAt  DateTime?                  @map("completed_at")
+  completedBy  String?                    @map("completed_by") @db.Uuid
+  resultUrl    String?                    @map("result_url") // link do export gerado (Supabase Storage), quando aplicável
+  notes        String?
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@map("data_subject_requests")
+}
+
+// =============================================================================
+// SEÇÃO 10 — CRM (LEADS, ATENDIMENTOS, AGENDA)
+// =============================================================================
+
+enum LeadStatus {
+  new
+  contacted
+  qualified
+  converted
+  lost
+}
+
+enum LeadSource {
+  website
+  whatsapp
+  phone
+  instagram
+  facebook
+  referral
+  walk_in
+  other
+}
+
+model Lead {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  companyId   String     @map("company_id") @db.Uuid
+  name        String
+  phone       String?
+  email       String?
+  source      LeadSource @default(other)
+  status      LeadStatus @default(new)
+  interest    String?    // ex: "kit embreagem para Onix 2018"
+  convertedCustomerId String? @map("converted_customer_id") @db.Uuid
+  notes       String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  interactions Interaction[]
+  appointments Appointment[]
+  opportunities CrmOpportunity[]
+  campaignMembers CrmCampaignMember[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@index([status])
+  @@map("leads")
+}
+
+enum InteractionChannel {
+  phone
+  whatsapp
+  email
+  in_person
+  chat
+}
+
+/// Registro de atendimento/contato com Cliente ou Lead (exatamente um dos
+/// dois deve estar preenchido).
+model Interaction {
+  id        String              @id @default(uuid()) @db.Uuid
+  tenantId  String              @map("tenant_id") @db.Uuid
+  customerId String?            @map("customer_id") @db.Uuid
+  leadId    String?             @map("lead_id") @db.Uuid
+  channel   InteractionChannel
+  summary   String
+  userId    String?             @map("user_id") @db.Uuid
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([leadId])
+  @@map("interactions")
+}
+
+enum AppointmentType {
+  service
+  sales_followup
+  delivery
+  other
+}
+
+enum AppointmentStatus {
+  scheduled
+  confirmed
+  completed
+  no_show
+  cancelled
+}
+
+/// Agenda — compromissos de oficina, follow-up comercial, entregas, etc.
+model Appointment {
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @map("tenant_id") @db.Uuid
+  branchId    String            @map("branch_id") @db.Uuid
+  customerId  String?           @map("customer_id") @db.Uuid
+  leadId      String?           @map("lead_id") @db.Uuid
+  type        AppointmentType   @default(other)
+  status      AppointmentStatus @default(scheduled)
+  title       String
+  scheduledAt DateTime          @map("scheduled_at")
+  durationMinutes Int           @default(30) @map("duration_minutes")
+  assignedTo  String?           @map("assigned_to") @db.Uuid
+  notes       String?
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([scheduledAt])
+  @@map("appointments")
+}
+
+// =============================================================================
+// SEÇÃO 10B — CRM PIPELINE (OPORTUNIDADES, TAREFAS, ETIQUETAS, CAMPANHAS)
+// =============================================================================
+// Lead (Seção 10, qualificação inicial) -> CrmOpportunity (negociação ativa
+// em um funil configurável) -> Sale (Seção 7, quando ganha). Etapas do
+// funil são configuráveis por tenant (CrmPipelineStage), não um enum fixo.
+
+/// Etapa configurável do funil de vendas (briefing: "Pipeline").
+model CrmPipelineStage {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String   // ex: "Novo", "Qualificação", "Proposta", "Negociação", "Ganho", "Perdido"
+  order     Int      @default(0)
+  isWon     Boolean  @default(false) @map("is_won")
+  isLost    Boolean  @default(false) @map("is_lost")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  opportunities CrmOpportunity[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("crm_pipeline_stages")
+}
+
+/// Oportunidade/Negociação — a unidade de trabalho do Pipeline. Nasce de
+/// um Lead qualificado ou diretamente de um Cliente existente
+/// (up-sell/renovação).
+model CrmOpportunity {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  leadId          String?  @map("lead_id") @db.Uuid
+  customerId      String?  @map("customer_id") @db.Uuid
+  pipelineStageId String   @map("pipeline_stage_id") @db.Uuid
+  title           String
+  value           Decimal  @default(0) @db.Decimal(15, 2)
+  probability     Int      @default(50) // % de chance de fechamento
+  expectedCloseDate DateTime? @map("expected_close_date") @db.Date
+  assignedTo      String?  @map("assigned_to") @db.Uuid
+  closedAt        DateTime? @map("closed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdBy       String?  @map("created_by") @db.Uuid
+
+  lead           Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer       Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  pipelineStage  CrmPipelineStage @relation(fields: [pipelineStageId], references: [id], onDelete: Restrict)
+
+  tasks CrmTask[]
+  tags  CrmTagAssignment[]
+
+  @@index([tenantId])
+  @@index([pipelineStageId])
+  @@index([customerId])
+  @@map("crm_opportunities")
+}
+
+enum CrmTaskType {
+  call       // Ligação
+  visit      // Visita
+  follow_up  // Follow-up
+  email
+  whatsapp
+  generic
+}
+
+enum CrmTaskStatus {
+  pending
+  completed
+  cancelled
+}
+
+/// Tarefa do CRM (briefing: "Follow-up, Ligações, Tarefas, Visitas") —
+/// distinta de `Interaction` (Seção 10, que é um LOG de contato já
+/// realizado): `CrmTask` é uma ação AGENDADA, com dono e prazo, que ao ser
+/// concluída tipicamente gera uma `Interaction` correspondente.
+model CrmTask {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  opportunityId String?       @map("opportunity_id") @db.Uuid
+  customerId    String?       @map("customer_id") @db.Uuid
+  leadId        String?       @map("lead_id") @db.Uuid
+  type          CrmTaskType   @default(generic)
+  status        CrmTaskStatus @default(pending)
+  title         String
+  dueAt         DateTime?     @map("due_at")
+  assignedTo    String?       @map("assigned_to") @db.Uuid
+  completedAt   DateTime?     @map("completed_at")
+  notes         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  opportunity CrmOpportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([opportunityId])
+  @@index([assignedTo, status])
+  @@map("crm_tasks")
+}
+
+/// Etiqueta livre (briefing: "Etiquetas") — aplicável a Oportunidades hoje;
+/// `CrmTagAssignment` é propositalmente específica de Oportunidade (não um
+/// entity/entityId genérico) para manter a integridade referencial real.
+model CrmTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  color     String?  @default("#6B7280")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  assignments CrmTagAssignment[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("crm_tags")
+}
+
+model CrmTagAssignment {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  tagId         String   @map("tag_id") @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tag         CrmTag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  opportunity CrmOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([tagId, opportunityId])
+  @@index([tenantId])
+  @@map("crm_tag_assignments")
+}
+
+enum CrmCampaignStatus {
+  draft
+  active
+  finished
+  cancelled
+}
+
+/// Campanha de marketing/relacionamento (briefing: "Campanhas") — agrupa
+/// Leads/Clientes-alvo via `CrmCampaignMember`.
+model CrmCampaign {
+  id        String            @id @default(uuid()) @db.Uuid
+  tenantId  String            @map("tenant_id") @db.Uuid
+  name      String
+  status    CrmCampaignStatus @default(draft)
+  startDate DateTime?         @db.Date
+  endDate   DateTime?         @db.Date
+  notes     String?
+  createdAt DateTime          @default(now()) @map("created_at")
+
+  members CrmCampaignMember[]
+
+  @@index([tenantId])
+  @@map("crm_campaigns")
+}
+
+model CrmCampaignMember {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  campaignId String    @map("campaign_id") @db.Uuid
+  customerId String?   @map("customer_id") @db.Uuid
+  leadId     String?   @map("lead_id") @db.Uuid
+  respondedAt DateTime? @map("responded_at")
+
+  campaign CrmCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([campaignId])
+  @@map("crm_campaign_members")
+}
+
+enum SupportTicketStatus {
+  open
+  in_progress
+  resolved
+  closed
+}
+
+enum SupportTicketPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+/// Chamado de suporte/atendimento (briefing: "Chamados") — parte da Visão
+/// 360° do Cliente junto com Interaction/Appointment.
+model SupportTicket {
+  id         String                 @id @default(uuid()) @db.Uuid
+  tenantId   String                 @map("tenant_id") @db.Uuid
+  customerId String                 @map("customer_id") @db.Uuid
+  subject    String
+  description String?
+  status     SupportTicketStatus    @default(open)
+  priority   SupportTicketPriority  @default(normal)
+  assignedTo String?                @map("assigned_to") @db.Uuid
+  resolvedAt DateTime?              @map("resolved_at")
+  createdAt  DateTime               @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+// =============================================================================
+// SEÇÃO 11 — NOTIFICAÇÕES
+// =============================================================================
+
+enum NotificationKind {
+  info
+  warning
+  success
+  error
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  kind      NotificationKind @default(info)
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// =============================================================================
+// SEÇÃO 12 — INTELIGÊNCIA ARTIFICIAL
+// =============================================================================
+
+/// Template de prompt reutilizável por funcionalidade de IA do ERP
+/// (ex: sugestão de aplicação veicular, resposta a cliente, análise de OS).
+model AiPromptTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid // null = template global da plataforma
+  key         String
+  name        String
+  template    String   // texto do prompt com placeholders
+  model       String   @default("claude-sonnet-4-6")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  interactions AiInteraction[]
+
+  @@unique([tenantId, key])
+  @@map("ai_prompt_templates")
+}
+
+/// Histórico de interações (pergunta/resposta) com a IA — base para
+/// auditoria de uso, custos (tokens) e qualidade de resposta.
+model AiInteraction {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  promptTemplateId String? @map("prompt_template_id") @db.Uuid
+  question        String
+  answer          String?
+  context         Json?    // payload estruturado enviado ao modelo (ex: produto, OS)
+  model           String?
+  promptTokens    Int?     @map("prompt_tokens")
+  completionTokens Int?    @map("completion_tokens")
+  latencyMs        Int?    @map("latency_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user           User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promptTemplate AiPromptTemplate? @relation(fields: [promptTemplateId], references: [id], onDelete: SetNull)
+  feedback       AiFeedback?
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("ai_interactions")
+}
+
+enum AiFeedbackRating {
+  positive
+  negative
+}
+
+/// Feedback humano sobre uma resposta de IA — sinal usado para curadoria/
+/// fine-tuning futuro de prompts ("treinamento" citado no briefing).
+model AiFeedback {
+  id            String           @id @default(uuid()) @db.Uuid
+  tenantId      String           @map("tenant_id") @db.Uuid
+  interactionId String           @unique @map("interaction_id") @db.Uuid
+  rating        AiFeedbackRating
+  comment       String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  createdBy     String?          @map("created_by") @db.Uuid
+
+  interaction AiInteraction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("ai_feedback")
+}
+
+// =============================================================================
+// SEÇÃO 13 — ESTRUTURA FISCAL (NF-e) — SEM INTEGRAÇÃO NESTA SPRINT
+// =============================================================================
+// Apenas a base de dados que sustentará a futura emissão/transmissão de
+// NF-e/NFC-e (via SEFAZ ou provedor terceirizado). Nenhuma lógica de
+// integração, assinatura digital ou transmissão é implementada aqui.
+
+/// Catálogo GLOBAL de NCM (Nomenclatura Comum do Mercosul).
+model Ncm {
+  code        String  @id // 8 dígitos
+  description String
+  ipiRate     Decimal? @map("ipi_rate") @db.Decimal(7, 4)
+
+  @@map("ncms")
+}
+
+/// Catálogo GLOBAL de CEST (Código Especificador da Substituição Tributária).
+model Cest {
+  code        String @id // 7 dígitos
+  description String
+  ncmCode     String? @map("ncm_code")
+
+  @@map("cests")
+}
+
+enum CfopType {
+  entrada
+  saida
+}
+
+/// Catálogo GLOBAL de CFOP (Código Fiscal de Operações e Prestações).
+model Cfop {
+  code        String   @id // 4 dígitos
+  description String
+  type        CfopType
+
+  @@map("cfops")
+}
+
+/// Catálogo GLOBAL de CST do ICMS (regime normal).
+model CstIcms {
+  code        String @id // 2-3 dígitos
+  description String
+
+  @@map("cst_icms")
+}
+
+/// Catálogo GLOBAL de CSOSN (regime Simples Nacional).
+model CsosnIcms {
+  code        String @id // 3 dígitos
+  description String
+
+  @@map("csosn_icms")
+}
+
+/// Regra de tributação de ICMS por UF origem x destino, usada para apurar
+/// a alíquota interestadual/interna no momento da emissão da nota.
+/// Fundação estrutural — o motor de cálculo fiscal completo (com exceções
+/// por NCM/categoria e substituição tributária) é um módulo futuro.
+model TaxRule {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  originState   String   @map("origin_state") @db.Char(2)
+  destState     String   @map("dest_state") @db.Char(2)
+  ncmCode       String?  @map("ncm_code")
+  icmsRate      Decimal  @map("icms_rate") @db.Decimal(7, 4)
+  icmsStRate    Decimal? @map("icms_st_rate") @db.Decimal(7, 4)
+  mvaPercent    Decimal? @map("mva_percent") @db.Decimal(7, 4) // margem de valor agregado (ST)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, originState, destState, ncmCode])
+  @@index([tenantId])
+  @@map("tax_rules")
+}
+
+enum FiscalInvoiceModel {
+  nfe  // modelo 55
+  nfce // modelo 65
+  sat  // equipamento SAT-CF-e (alternativa à NFC-e em alguns estados) — estrutura preparada, sem emissão real nesta sprint
+}
+
+enum FiscalInvoiceStatus {
+  draft
+  pending_authorization
+  authorized
+  rejected
+  cancelled
+  denied
+  contingency
+}
+
+enum FiscalEnvironment {
+  production
+  homologation
+}
+
+/// Configuração fiscal por Filial (regime, ambiente, próximo número,
+/// certificado vigente).
+model FiscalConfiguration {
+  id                  String            @id @default(uuid()) @db.Uuid
+  tenantId            String            @map("tenant_id") @db.Uuid
+  branchId            String            @unique @map("branch_id") @db.Uuid
+  environment         FiscalEnvironment @default(homologation)
+  defaultCfopInState  String?           @map("default_cfop_in_state")
+  defaultCfopOutState String?           @map("default_cfop_out_state")
+  nfeCertificateId    String?           @map("nfe_certificate_id") @db.Uuid
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  branch      Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  certificate FiscalCertificate?  @relation(fields: [nfeCertificateId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("fiscal_configurations")
+}
+
+/// Metadados do certificado digital (A1/A3) usado para assinatura das NF-e.
+/// O material criptográfico (arquivo .pfx/senha) NUNCA é armazenado em
+/// texto puro nesta tabela — apenas referência a um storage seguro
+/// (Supabase Storage com criptografia) e metadados de validade.
+model FiscalCertificate {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  alias         String
+  storageRef    String    @map("storage_ref") // referência ao arquivo no storage seguro
+  validFrom     DateTime  @map("valid_from") @db.Date
+  validUntil    DateTime  @map("valid_until") @db.Date
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  fiscalConfigurations FiscalConfiguration[]
+
+  @@index([tenantId])
+  @@index([companyId])
+  @@map("fiscal_certificates")
+}
+
+/// Série de numeração de NF-e/NFC-e por Filial/Modelo.
+model FiscalSeries {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenantId      String             @map("tenant_id") @db.Uuid
+  branchId      String             @map("branch_id") @db.Uuid
+  model         FiscalInvoiceModel
+  series        Int
+  nextNumber    Int                @default(1) @map("next_number")
+  isActive      Boolean            @default(true) @map("is_active")
+
+  branch   Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  invoices FiscalInvoice[]
+
+  @@unique([branchId, model, series])
+  @@index([tenantId])
+  @@map("fiscal_series")
+}
+
+/// Nota fiscal eletrônica (cabeçalho). `xmlContent`/`xmlPath` guardam o XML
+/// assinado retornado pela SEFAZ (ou provedor) após autorização — campo
+/// preparado para a integração futura, não preenchido nesta sprint.
+model FiscalInvoice {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  branchId        String              @map("branch_id") @db.Uuid
+  fiscalSeriesId  String              @map("fiscal_series_id") @db.Uuid
+  saleId          String?             @map("sale_id") @db.Uuid
+  purchaseOrderId String?             @map("purchase_order_id") @db.Uuid // NF-e de ENTRADA (compra) — ponto de integração para a Sprint Fiscal; XML real não é processado ainda
+  serviceOrderId  String?             @map("service_order_id") @db.Uuid // NFS-e de serviço — ponto de integração para a Sprint Fiscal (briefing Oficina), sem emissão real ainda
+  customerId      String?             @map("customer_id") @db.Uuid
+  supplierId      String?             @map("supplier_id") @db.Uuid
+  carrierId       String?             @map("carrier_id") @db.Uuid
+  model           FiscalInvoiceModel
+  number          Int
+  series          Int
+  accessKey       String?             @unique @map("access_key") @db.Char(44)
+  status          FiscalInvoiceStatus @default(draft)
+  totalProducts   Decimal             @default(0) @map("total_products") @db.Decimal(15, 2)
+  totalDiscount   Decimal             @default(0) @map("total_discount") @db.Decimal(15, 2)
+  totalFreight    Decimal             @default(0) @map("total_freight") @db.Decimal(15, 2)
+  totalAmount     Decimal             @default(0) @map("total_amount") @db.Decimal(15, 2)
+  issueDate       DateTime            @default(now()) @map("issue_date")
+  authorizedAt    DateTime?           @map("authorized_at")
+  protocolNumber  String?             @map("protocol_number")
+  xmlPath         String?             @map("xml_path")
+  rejectionReason String?             @map("rejection_reason")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  createdBy       String?             @map("created_by") @db.Uuid
+
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  fiscalSeries FiscalSeries @relation(fields: [fiscalSeriesId], references: [id], onDelete: Restrict)
+  sale         Sale?        @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  serviceOrder  ServiceOrder?  @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  carrier      Carrier?     @relation(fields: [carrierId], references: [id], onDelete: SetNull)
+
+  items  FiscalInvoiceItem[]
+  events FiscalInvoiceEvent[]
+
+  @@unique([branchId, model, series, number])
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([status])
+  @@index([accessKey])
+  @@map("fiscal_invoices")
+}
+
+model FiscalInvoiceItem {
+  id              String  @id @default(uuid()) @db.Uuid
+  tenantId        String  @map("tenant_id") @db.Uuid
+  fiscalInvoiceId String  @map("fiscal_invoice_id") @db.Uuid
+  productId       String  @map("product_id") @db.Uuid
+  cfopCode        String  @map("cfop_code")
+  quantity        Decimal @db.Decimal(15, 4)
+  unitPrice       Decimal @map("unit_price") @db.Decimal(15, 4)
+  discountAmount  Decimal @default(0) @map("discount_amount") @db.Decimal(15, 2)
+  icmsAmount      Decimal @default(0) @map("icms_amount") @db.Decimal(15, 2)
+  ipiAmount       Decimal @default(0) @map("ipi_amount") @db.Decimal(15, 2)
+  pisAmount       Decimal @default(0) @map("pis_amount") @db.Decimal(15, 2)
+  cofinsAmount    Decimal @default(0) @map("cofins_amount") @db.Decimal(15, 2)
+  totalAmount     Decimal @map("total_amount") @db.Decimal(15, 2)
+
+  fiscalInvoice FiscalInvoice @relation(fields: [fiscalInvoiceId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([fiscalInvoiceId])
+  @@map("fiscal_invoice_items")
+}
+
+enum FiscalEventType {
+  cancellation
+  correction_letter // Carta de Correção (CC-e)
+  manifestation
+  voiding           // Inutilização de numeração
+}
+
+model FiscalInvoiceEvent {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  fiscalInvoiceId String          @map("fiscal_invoice_id") @db.Uuid
+  type            FiscalEventType
+  sequence        Int             @default(1)
+  reason          String
+  protocolNumber  String?         @map("protocol_number")
+  xmlPath         String?         @map("xml_path")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  createdBy       String?         @map("created_by") @db.Uuid
+
+  fiscalInvoice FiscalInvoice @relation(fields: [fiscalInvoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([fiscalInvoiceId])
+  @@map("fiscal_invoice_events")
+}

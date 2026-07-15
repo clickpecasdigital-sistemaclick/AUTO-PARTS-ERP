@@ -1,0 +1,72 @@
+# =============================================================================
+# AutoCore ERP — Netlify Deploy (Frontend React/Vite)
+# =============================================================================
+# ARQUITETURA DE DEPLOY:
+#   Frontend → Netlify (este arquivo)
+#   Backend API → Railway / Render / Fly.io (ver docs/deploy/API_DEPLOY.md)
+#   Banco → Supabase (managed PostgreSQL)
+#
+# VARIÁVEIS OBRIGATÓRIAS no painel Netlify:
+#   VITE_API_URL            → URL pública da sua API (ex: https://api.autocore.com)
+#   VITE_SUPABASE_URL       → URL do projeto Supabase
+#   VITE_SUPABASE_ANON_KEY  → chave pública anon do Supabase
+# =============================================================================
+
+[build]
+  base    = "apps/web"
+  command = "npm install && npm run build"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION    = "20"
+  NPM_FLAGS       = "--legacy-peer-deps"
+
+# SPA fallback — todas as rotas do React Router retornam index.html
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# Proxy da API → evita CORS em desenvolvimento/preview
+[[redirects]]
+  from   = "/api/*"
+  to     = ":VITE_API_URL/api/:splat"
+  status = 200
+  force  = false
+
+# Headers de segurança (complementam o Helmet da API)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options           = "DENY"
+    X-Content-Type-Options    = "nosniff"
+    Referrer-Policy           = "strict-origin-when-cross-origin"
+    Permissions-Policy        = "camera=(), microphone=(), geolocation=()"
+    X-XSS-Protection          = "1; mode=block"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+# Cache agressivo para assets com hash (Vite gera hash no filename)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# index.html nunca em cache (ponto de entrada do SPA)
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# ---- AMBIENTES ---------------------------------------------------------------
+
+[context.production.environment]
+  VITE_APP_ENV  = "production"
+  VITE_APP_NAME = "AutoCore ERP"
+
+[context.deploy-preview.environment]
+  VITE_APP_ENV  = "staging"
+  VITE_APP_NAME = "AutoCore ERP (Preview)"
+
+[context.branch-deploy.environment]
+  VITE_APP_ENV  = "staging"
+

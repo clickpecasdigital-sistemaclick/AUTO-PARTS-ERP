@@ -1,0 +1,199 @@
+/* =============================================================================
+   AUTOCORE ERP — DESIGN TOKENS (SPRINT 03)
+   =============================================================================
+   Fonte única de verdade visual do produto. Nenhum componente deve usar um
+   valor de cor/espaçamento/sombra "mágico" fora deste arquivo — sempre uma
+   variável daqui (diretamente ou via classe utilitária do Tailwind mapeada
+   em tailwind.config.ts).
+
+   Paletas cruas (escalas 50–900) ficam aqui. globals.css consome essas
+   variáveis para compor os tokens SEMÂNTICOS (--primary, --success, etc.),
+   que são o que os componentes de fato devem usar no dia a dia.
+   ========================================================================== */
+
+:root {
+  /* ---------------------------------------------------------------------
+     COR — ESCALAS CRUAS
+     --------------------------------------------------------------------- */
+
+  /* Laranja Premium — cor de marca primária (ação, energia, "AutoCore") */
+  --color-orange-50:  #fff6ed;
+  --color-orange-100: #ffead4;
+  --color-orange-200: #fed1a9;
+  --color-orange-300: #fdb273;
+  --color-orange-400: #fb8a3c;
+  --color-orange-500: #f2730f;
+  --color-orange-600: #dd5c09;
+  --color-orange-700: #b7460a;
+  --color-orange-800: #93390f;
+  --color-orange-900: #78300f;
+
+  /* Azul Petróleo — cor de marca secundária (confiança, profundidade) */
+  --color-petroleum-50:  #eef6f7;
+  --color-petroleum-100: #d5e9ec;
+  --color-petroleum-200: #add3d9;
+  --color-petroleum-300: #7fb7c0;
+  --color-petroleum-400: #4d959f;
+  --color-petroleum-500: #2c7782;
+  --color-petroleum-600: #1f5f69;
+  --color-petroleum-700: #1c4c54;
+  --color-petroleum-800: #1a3d43;
+  --color-petroleum-900: #17333a;
+
+  /* Grafite — neutro escuro (texto, superfícies dark mode) */
+  --color-graphite-50:  #f6f6f7;
+  --color-graphite-100: #e7e8ea;
+  --color-graphite-200: #cccdd2;
+  --color-graphite-300: #a6aab1;
+  --color-graphite-400: #7c818b;
+  --color-graphite-500: #5c616b;
+  --color-graphite-600: #454952;
+  --color-graphite-700: #34373e;
+  --color-graphite-800: #24262b;
+  --color-graphite-900: #16171a;
+
+  /* Cinza Claro — neutro claro (fundos, bordas, divisores) */
+  --color-gray-50:  #fafbfc;
+  --color-gray-100: #f4f6f8;
+  --color-gray-200: #e9ecf0;
+  --color-gray-300: #d8dce3;
+  --color-gray-400: #b9bfc9;
+  --color-gray-500: #9aa1ad;
+  --color-gray-600: #7c8493;
+  --color-gray-700: #636b79;
+  --color-gray-800: #4b515c;
+  --color-gray-900: #34383f;
+
+  /* Sucesso — Verde */
+  --color-green-50:  #eefbf3;
+  --color-green-100: #d5f5e1;
+  --color-green-200: #aaeac4;
+  --color-green-300: #74d8a2;
+  --color-green-400: #43bf80;
+  --color-green-500: #1fa866;
+  --color-green-600: #158652;
+  --color-green-700: #146943;
+  --color-green-800: #145336;
+  --color-green-900: #12442d;
+
+  /* Alerta — Amarelo */
+  --color-yellow-50:  #fffaeb;
+  --color-yellow-100: #fff0c2;
+  --color-yellow-200: #ffe08a;
+  --color-yellow-300: #ffc94d;
+  --color-yellow-400: #fab024;
+  --color-yellow-500: #ef9407;
+  --color-yellow-600: #cc7405;
+  --color-yellow-700: #a3590a;
+  --color-yellow-800: #84480f;
+  --color-yellow-900: #6c3c10;
+
+  /* Erro — Vermelho */
+  --color-red-50:  #fef2f2;
+  --color-red-100: #fddfdd;
+  --color-red-200: #fbc2be;
+  --color-red-300: #f69992;
+  --color-red-400: #ed6b63;
+  --color-red-500: #e03e35;
+  --color-red-600: #c12a22;
+  --color-red-700: #9f221c;
+  --color-red-800: #84201c;
+  --color-red-900: #6f1e1b;
+
+  /* Informação — Azul Claro */
+  --color-blue-50:  #eff8ff;
+  --color-blue-100: #daeeff;
+  --color-blue-200: #b8dfff;
+  --color-blue-300: #87cbff;
+  --color-blue-400: #4fafff;
+  --color-blue-500: #1f8fef;
+  --color-blue-600: #0f71cc;
+  --color-blue-700: #0f5aa3;
+  --color-blue-800: #134b82;
+  --color-blue-900: #15406b;
+
+  /* ---------------------------------------------------------------------
+     TIPOGRAFIA
+     --------------------------------------------------------------------- */
+  --font-display: 'Lexend', 'Inter', system-ui, sans-serif; /* títulos, KPIs */
+  --font-body: 'Inter', system-ui, sans-serif;               /* texto, UI */
+  --font-numeric: 'Inter', system-ui, sans-serif;             /* + font-feature tabular-nums */
+
+  --text-h1-size: 2.5rem;    --text-h1-line: 1.15; --text-h1-weight: 700; --text-h1-tracking: -0.02em;
+  --text-h2-size: 2rem;      --text-h2-line: 1.2;  --text-h2-weight: 700; --text-h2-tracking: -0.015em;
+  --text-h3-size: 1.5rem;    --text-h3-line: 1.3;  --text-h3-weight: 600; --text-h3-tracking: -0.01em;
+  --text-h4-size: 1.25rem;   --text-h4-line: 1.4;  --text-h4-weight: 600; --text-h4-tracking: 0;
+  --text-body-size: 0.9375rem; --text-body-line: 1.6; --text-body-weight: 400; --text-body-tracking: 0;
+  --text-caption-size: 0.8125rem; --text-caption-line: 1.4; --text-caption-weight: 400; --text-caption-tracking: 0.01em;
+  --text-label-size: 0.8125rem; --text-label-line: 1.2; --text-label-weight: 500; --text-label-tracking: 0.01em;
+  --text-button-size: 0.875rem; --text-button-line: 1; --text-button-weight: 500; --text-button-tracking: 0.01em;
+
+  /* ---------------------------------------------------------------------
+     GRID / ESPAÇAMENTO — escala oficial (px), espelhada em tailwind.config
+     4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96 · 128
+     --------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+  --space-32: 128px;
+
+  /* ---------------------------------------------------------------------
+     BORDER RADIUS
+     --------------------------------------------------------------------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-3xl: 36px;
+  --radius-full: 9999px;
+
+  /* ---------------------------------------------------------------------
+     SHADOWS — extremamente suaves (baixa opacidade, blur generoso)
+     --------------------------------------------------------------------- */
+  --shadow-xs:  0 1px 2px 0 rgb(22 23 26 / 0.04);
+  --shadow-sm:  0 1px 3px 0 rgb(22 23 26 / 0.05), 0 1px 2px -1px rgb(22 23 26 / 0.04);
+  --shadow-md:  0 4px 12px -2px rgb(22 23 26 / 0.06), 0 2px 4px -2px rgb(22 23 26 / 0.04);
+  --shadow-lg:  0 12px 24px -6px rgb(22 23 26 / 0.08), 0 4px 8px -4px rgb(22 23 26 / 0.04);
+  --shadow-xl:  0 24px 48px -12px rgb(22 23 26 / 0.10), 0 8px 16px -8px rgb(22 23 26 / 0.05);
+  --shadow-2xl: 0 32px 64px -16px rgb(22 23 26 / 0.14);
+  --shadow-focus-ring: 0 0 0 3px rgb(242 115 15 / 0.25);
+
+  /* ---------------------------------------------------------------------
+     TRANSIÇÕES / MOTION
+     --------------------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --duration-page: 420ms;
+
+  /* ---------------------------------------------------------------------
+     Z-INDEX — escala única, evita guerra de z-index entre componentes
+     --------------------------------------------------------------------- */
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-drawer: 1200;
+  --z-modal-overlay: 1300;
+  --z-modal: 1310;
+  --z-popover: 1400;
+  --z-toast: 1500;
+  --z-tooltip: 1600;
+
+  /* ---------------------------------------------------------------------
+     BREAKPOINTS (referência — aplicados via tailwind.config `screens`)
+     --------------------------------------------------------------------- */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}

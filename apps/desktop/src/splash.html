@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+    .logo {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -1px;
+      margin-bottom: 8px;
+    }
+    .logo span { color: #3b82f6; }
+    .subtitle {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 40px;
+    }
+    .loader {
+      width: 240px;
+      height: 3px;
+      background: #1e293b;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .loader-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #06b6d4);
+      border-radius: 2px;
+      animation: load 2s ease-in-out infinite;
+    }
+    @keyframes load {
+      0%   { width: 0%; margin-left: 0%; }
+      50%  { width: 60%; margin-left: 20%; }
+      100% { width: 0%; margin-left: 100%; }
+    }
+    .status {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .version {
+      position: absolute;
+      bottom: 16px;
+      font-size: 11px;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">Auto<span>Core</span> ERP</div>
+  <div class="subtitle">Sistema de Gestão para Autopeças e Oficinas</div>
+  <div class="loader"><div class="loader-bar"></div></div>
+  <div class="status" id="status">Iniciando servidor...</div>
+  <div class="version">v1.0.0</div>
+
+  <script>
+    const messages = [
+      'Iniciando servidor...',
+      'Carregando banco de dados...',
+      'Verificando configurações...',
+      'Preparando interface...',
+      'Quase pronto...',
+    ];
+    let i = 0;
+    setInterval(() => {
+      document.getElementById('status').textContent = messages[i % messages.length];
+      i++;
+    }, 800);
+  </script>
+</body>
+</html>

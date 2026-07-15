@@ -1,0 +1,63 @@
+# =============================================================================
+# Dockerfile — AutoCore ERP API (NestJS)
+# Multi-stage: build → produção
+# Target: Node.js 20 LTS, Alpine (imagem mínima)
+# =============================================================================
+
+# ---- Stage 1: Dependências de desenvolvimento --------------------------------
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+# Instalar apenas o necessário para compilar
+RUN apk add --no-cache libc6-compat openssl
+
+COPY package*.json ./
+COPY apps/api/package*.json ./apps/api/
+RUN npm ci --workspace=apps/api
+
+# ---- Stage 2: Build ----------------------------------------------------------
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
+COPY . .
+
+WORKDIR /app/apps/api
+
+# Gerar Prisma Client
+RUN npx prisma generate
+
+# Build TypeScript
+RUN npm run build
+
+# Remover devDependencies
+RUN npm prune --production
+
+# ---- Stage 3: Produção -------------------------------------------------------
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Segurança: rodar como usuário não-root
+RUN addgroup --system --gid 1001 autocore && \
+    adduser --system --uid 1001 autocore
+
+# Apenas o necessário em runtime
+RUN apk add --no-cache openssl curl
+
+# Copiar artefatos buildados
+COPY --from=builder --chown=autocore:autocore /app/apps/api/dist ./dist
+COPY --from=builder --chown=autocore:autocore /app/apps/api/node_modules ./node_modules
+COPY --from=builder --chown=autocore:autocore /app/apps/api/prisma ./prisma
+COPY --from=builder --chown=autocore:autocore /app/apps/api/package.json .
+
+USER autocore
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:3000/health/liveness || exit 1
+
+EXPOSE 3000
+
+# Migrations automáticas antes de iniciar (idempotentes)
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

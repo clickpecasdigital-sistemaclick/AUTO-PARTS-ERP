@@ -1,0 +1,199 @@
+@import './tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   TOKENS SEMÂNTICOS — Sprint 03 (Design System Enterprise)
+   =============================================================================
+   Componentes NUNCA devem referenciar --color-orange-500 etc. diretamente.
+   Sempre os tokens semânticos abaixo (--primary, --success...), para que a
+   identidade visual possa evoluir centralizadamente sem tocar componente
+   por componente.
+
+   IMPORTANTE — formato "R G B" (sem hsl()/rgb()/#, separado por espaço):
+   é o formato exigido pelo Tailwind para que modificadores de opacidade
+   (`bg-primary/90`, `bg-muted/50`) funcionem — ver tailwind.config.ts,
+   onde cada token semântico é exposto como `rgb(var(--x) / <alpha-value>)`.
+   As escalas cruas (--color-orange-500 etc., em tokens.css) permanecem em
+   hex puro pois são usadas apenas em modo sólido (ex: text-orange-600).
+   ========================================================================== */
+
+@layer base {
+  :root {
+    --background: 244 246 248;        /* #F4F6F8 */
+    --background-elevated: 255 255 255;
+    --foreground: 22 23 26;           /* graphite-900 */
+
+    --card: 255 255 255;
+    --card-foreground: 22 23 26;
+
+    --popover: 255 255 255;
+    --popover-foreground: 22 23 26;
+
+    --primary: 242 115 15;            /* orange-500 */
+    --primary-hover: 221 92 9;        /* orange-600 */
+    --primary-foreground: 255 255 255;
+
+    --secondary: 44 119 130;          /* petroleum-500 */
+    --secondary-hover: 31 95 105;     /* petroleum-600 */
+    --secondary-foreground: 255 255 255;
+
+    --muted: 244 246 248;             /* gray-100 */
+    --muted-foreground: 92 97 107;    /* graphite-500 */
+
+    --accent: 233 236 240;            /* gray-200 */
+    --accent-foreground: 22 23 26;
+
+    --destructive: 224 62 53;         /* red-500 */
+    --destructive-hover: 193 42 34;   /* red-600 */
+    --destructive-foreground: 255 255 255;
+
+    --success: 31 168 102;            /* green-500 */
+    --success-hover: 21 134 82;       /* green-600 */
+    --success-foreground: 255 255 255;
+
+    --warning: 239 148 7;             /* yellow-500 */
+    --warning-hover: 204 116 5;       /* yellow-600 */
+    --warning-foreground: 22 23 26;
+
+    --info: 31 143 239;               /* blue-500 */
+    --info-hover: 15 113 204;         /* blue-600 */
+    --info-foreground: 255 255 255;
+
+    --border: 233 236 240;            /* gray-200 */
+    --input: 233 236 240;
+    --ring: 251 138 60;               /* orange-400 */
+
+    --radius: var(--radius-lg);       /* 14px — cards grandes, bordas arredondadas por padrão */
+
+    /* Sidebar carrega identidade própria (Azul Petróleo), não é apenas "cinza escuro" */
+    --sidebar-background: 23 51 58;   /* petroleum-900 */
+    --sidebar-foreground: 250 251 252;
+    --sidebar-border: 26 61 67;       /* petroleum-800 */
+    --sidebar-accent: 31 95 105;      /* petroleum-600 */
+
+    /* Gradientes discretos (uso pontual: hero de dashboard, botões "premium", FAB) */
+    --gradient-primary: linear-gradient(135deg, var(--color-orange-400) 0%, var(--color-orange-600) 100%);
+    --gradient-secondary: linear-gradient(135deg, var(--color-petroleum-400) 0%, var(--color-petroleum-700) 100%);
+    --gradient-surface: linear-gradient(180deg, #FFFFFF 0%, var(--color-gray-50) 100%);
+  }
+
+  /* ---------------------------------------------------------------------
+     DARK MODE — identidade própria, não uma simples inversão de cores.
+     Fundo com tonalidade petróleo (não cinza neutro), superfícies em
+     camadas (surface-1/2/3) com micro-realce de borda para sensação de
+     profundidade "vidro", laranja mais claro/saturado para manter pop
+     de contraste sobre fundo escuro.
+     --------------------------------------------------------------------- */
+  .dark {
+    --background: 17 24 28;           /* #11181C — petróleo quase-preto, não cinza puro */
+    --background-elevated: 36 38 43;  /* graphite-800 */
+    --foreground: 250 251 252;
+
+    --card: 24 34 40;                 /* #182228 — surface-1 */
+    --card-foreground: 250 251 252;
+
+    --popover: 30 42 49;              /* #1E2A31 — surface-2 */
+    --popover-foreground: 250 251 252;
+
+    --primary: 251 138 60;            /* orange-400 */
+    --primary-hover: 253 178 115;     /* orange-300 */
+    --primary-foreground: 22 23 26;
+
+    --secondary: 77 149 159;          /* petroleum-400 */
+    --secondary-hover: 127 183 192;   /* petroleum-300 */
+    --secondary-foreground: 22 23 26;
+
+    --muted: 28 39 48;                /* #1C2730 */
+    --muted-foreground: 185 191 201;  /* gray-400 */
+
+    --accent: 34 48 56;               /* #223038 */
+    --accent-foreground: 250 251 252;
+
+    --destructive: 237 107 99;        /* red-400 */
+    --destructive-hover: 246 153 146; /* red-300 */
+    --destructive-foreground: 22 23 26;
+
+    --success: 67 191 128;            /* green-400 */
+    --success-hover: 116 216 162;     /* green-300 */
+    --success-foreground: 22 23 26;
+
+    --warning: 250 176 36;            /* yellow-400 */
+    --warning-hover: 255 201 77;      /* yellow-300 */
+    --warning-foreground: 22 23 26;
+
+    --info: 79 175 255;               /* blue-400 */
+    --info-hover: 135 203 255;        /* blue-300 */
+    --info-foreground: 22 23 26;
+
+    --border: 36 48 56;                /* #243038 */
+    --input: 36 48 56;
+    --ring: 251 138 60;
+
+    --sidebar-background: 11 19 22;    /* #0B1316 — ainda mais profundo que o fundo principal */
+    --sidebar-foreground: 244 246 248;
+    --sidebar-border: 22 34 42;         /* #16222A */
+    --sidebar-accent: 28 46 54;         /* #1C2E36 */
+
+    --gradient-primary: linear-gradient(135deg, var(--color-orange-300) 0%, var(--color-orange-500) 100%);
+    --gradient-secondary: linear-gradient(135deg, var(--color-petroleum-300) 0%, var(--color-petroleum-600) 100%);
+    --gradient-surface: linear-gradient(180deg, #182228 0%, #11181C 100%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body);
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  /* Qualquer valor numérico de negócio (preços, totais, KPIs, quantidades)
+     deve usar esta classe para alinhamento tabular perfeito em tabelas/dashboards */
+  .font-numeric,
+  .tabular-nums {
+    font-family: var(--font-numeric);
+    font-feature-settings: 'tnum' 1, 'lnum' 1;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  .bg-gradient-primary { background-image: var(--gradient-primary); }
+  .bg-gradient-secondary { background-image: var(--gradient-secondary); }
+  .bg-gradient-surface { background-image: var(--gradient-surface); }
+
+  .focus-ring {
+    @apply outline-none;
+    box-shadow: var(--shadow-focus-ring);
+  }
+
+  /* Respeita preferência de movimento reduzido em todo o app (acessibilidade) */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# =============================================================================
+# Dockerfile — AutoCore ERP Frontend (Vite + React)
+# Multi-stage: build → Nginx (Alpine)
+# =============================================================================
+
+# ---- Stage 1: Build ----------------------------------------------------------
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat
+
+COPY package*.json ./
+COPY apps/web/package*.json ./apps/web/
+RUN npm ci --workspace=apps/web
+
+COPY . .
+
+WORKDIR /app/apps/web
+
+# Build otimizado (tree-shaking, code splitting, minificação automática)
+RUN npm run build
+
+# ---- Stage 2: Nginx ----------------------------------------------------------
+FROM nginx:1.27-alpine AS runner
+
+# Config Nginx com:
+# — SPA routing (try_files para React Router)
+# — Headers de segurança (CSP, HSTS, X-Frame-Options)
+# — Compressão Brotli/Gzip
+# — Cache-Control correto para static assets vs index.html
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copiar build
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+
+# Usuário não-root
+RUN adduser --system --no-create-home --disabled-password --gecos '' nginx-runner || true
+RUN chown -R nginx:nginx /usr/share/nginx/html /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:80/health || exit 1
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

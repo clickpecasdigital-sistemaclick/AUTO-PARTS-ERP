@@ -1,0 +1,32 @@
+# =============================================================================
+# AutoCore ERP — Render.com Deploy
+# Alternativa ao Railway para hospedar a API NestJS
+# =============================================================================
+
+services:
+  - type: web
+    name: autocore-erp-api
+    runtime: node
+    rootDir: apps/api
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && node dist/main
+    healthCheckPath: /api/v1/health/liveness
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3333
+      - key: DATABASE_URL
+        sync: false  # preenchido no painel
+      - key: DIRECT_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: AES_256_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
