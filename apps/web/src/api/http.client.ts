@@ -66,7 +66,15 @@ async function request<TResponse>(path: string, options: RequestOptions = {}): P
   }
 
   if (response.status === 204) return undefined as TResponse;
-  return (await response.json()) as TResponse;
+
+  // O backend (TransformInterceptor, global) embrulha toda resposta de
+  // sucesso como `{ data: T, timestamp: string }`. Sem desembrulhar aqui,
+  // todo `httpClient.get<CatalogOption[]>(...)` (e qualquer outra chamada)
+  // recebia o envelope inteiro em vez do array/objeto esperado — quebrando
+  // qualquer `.map()`/`.filter()` no código chamador em praticamente toda
+  // tela do sistema que busca dado da API.
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json ? json.data : json) as TResponse;
 }
 
 export const httpClient = {
