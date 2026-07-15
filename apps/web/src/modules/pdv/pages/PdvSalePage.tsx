@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Car, Save, User, X } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -18,6 +18,7 @@ import {
 import { useKeyboardShortcut } from '@/hooks/useKeyboardShortcut';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL } from '@/utils/formatters';
+import { useWarehouses } from '@/modules/inventory/hooks/useInventory';
 import { PdvProductSearch } from '../components/PdvProductSearch';
 import { PdvCartTable } from '../components/PdvCartTable';
 import { PdvPaymentDialog } from '../components/PdvPaymentDialog';
@@ -52,7 +53,14 @@ export default function PdvSalePage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
 
+  const { data: warehouses } = useWarehouses();
   const { data: cart, isLoading } = useCart(cartId ?? undefined);
+
+  useEffect(() => {
+    if (warehouseId || !warehouses?.length) return;
+    const defaultWarehouse = warehouses.find((w) => w.isDefault) ?? warehouses[0];
+    setWarehouseId(defaultWarehouse.id);
+  }, [warehouses, warehouseId]);
   const openCart = useOpenCart();
   const addItem = useAddCartItem(cartId ?? '');
   const setCustomer = useSetCartCustomer(cartId ?? '');
@@ -105,8 +113,19 @@ export default function PdvSalePage() {
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="Depósito (ID)" required>
-              <Input value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} placeholder="uuid do depósito" />
+            <FormField label="Depósito" required>
+              <Select onValueChange={setWarehouseId} value={warehouseId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o depósito" />
+                </SelectTrigger>
+                <SelectContent>
+                  {warehouses?.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name} ({w.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormField>
             <Button className="w-full" onClick={handleStart} isLoading={openCart.isPending} disabled={!warehouseId}>
               Iniciar venda
