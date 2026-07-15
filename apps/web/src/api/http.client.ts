@@ -25,7 +25,15 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 async function request<TResponse>(path: string, options: RequestOptions = {}): Promise<TResponse> {
   const { params, body, headers, ...rest } = options;
 
-  const url = new URL(path, env.apiUrl);
+  // `new URL(path, base)` (implementação anterior) descarta qualquer
+  // segmento de path da `base` sempre que `path` começa com "/" — e todo
+  // service da app chama `httpClient.get('/products', ...)` com "/" na
+  // frente. Resultado: `new URL('/products', 'https://api.com/api/v1')`
+  // vira `https://api.com/products`, perdendo o prefixo `/api/v1` — TODA
+  // chamada à API caía num endpoint errado (404). Concatenar como string
+  // antes de construir a URL preserva o prefixo corretamente.
+  const base = env.apiUrl.replace(/\/+$/, '');
+  const url = new URL(`${base}${path}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined) url.searchParams.set(key, String(value));
