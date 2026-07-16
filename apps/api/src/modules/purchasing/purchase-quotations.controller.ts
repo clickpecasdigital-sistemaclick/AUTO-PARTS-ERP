@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards, Query} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
@@ -46,7 +46,7 @@ export class PurchaseQuotationsController {
   @Post()
   @RequirePermission('purchases', 'create')
   @ApiOperation({ summary: 'Abre uma cotação com um ou mais fornecedores' })
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: CreateQuotationDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: CreateQuotationDto) {
     return this.service.create(toRequestContext(user, req), branchId, dto);
   }
 

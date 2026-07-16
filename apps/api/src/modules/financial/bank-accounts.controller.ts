@@ -40,7 +40,7 @@ export class BankAccountsController {
 
   @Post('accounts')
   @RequirePermission('financial', 'create')
-  createAccount(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('companyId') companyId: string, @Body() data: Record<string, unknown>) {
+  createAccount(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('companyId') companyId: string, @Body() data: Record<string, unknown>) {
     return this.service.createAccount(toRequestContext(user, req), companyId, data);
   }
 

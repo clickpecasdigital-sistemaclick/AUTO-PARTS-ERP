@@ -50,7 +50,7 @@ export class ServiceOrdersController {
   @Post()
   @RequirePermission('workshop', 'create')
   @ApiOperation({ summary: 'Cria uma OS (a partir de Recepção/Check-in, ou de um Agendamento via appointmentId)' })
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: CreateServiceOrderDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: CreateServiceOrderDto) {
     return this.service.create(toRequestContext(user, req), branchId, dto);
   }
 

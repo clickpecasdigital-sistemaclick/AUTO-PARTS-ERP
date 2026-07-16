@@ -40,7 +40,7 @@ export class CarriersController {
 
   @Post()
   @RequirePermission('carriers', 'create')
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('companyId') companyId: string, @Body() dto: Record<string, unknown>) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('companyId') companyId: string, @Body() dto: Record<string, unknown>) {
     return this.service.create(toRequestContext(user, req), companyId, dto);
   }
 

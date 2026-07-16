@@ -35,7 +35,7 @@ export class PurchaseRequestsController {
   @Post()
   @RequirePermission('purchases', 'create')
   @ApiOperation({ summary: 'Cria uma Solicitação de Compra (a "Necessidade" que inicia o ciclo)' })
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: CreatePurchaseRequestDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: CreatePurchaseRequestDto) {
     return this.service.create(toRequestContext(user, req), branchId, dto);
   }
 

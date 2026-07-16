@@ -64,7 +64,7 @@ export class FiscalIssuanceController {
   @Post('nfe')
   @RequirePermission('fiscal', 'issue')
   @ApiOperation({ summary: 'Emite NF-e modelo 55' })
-  issueNfe(@CurrentUser() u: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() params: Record<string, unknown>) {
+  issueNfe(@CurrentUser() u: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() params: Record<string, unknown>) {
     return this.issuance.issueNfe(toCtx(u, req), branchId, params as never);
   }
 

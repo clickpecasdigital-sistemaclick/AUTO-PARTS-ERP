@@ -63,7 +63,7 @@ export class PdvCartController {
   @Post()
   @RequirePermission('sales', 'create')
   @ApiOperation({ summary: 'Abre um carrinho (= Sale com status open) no modo de operação escolhido' })
-  openCart(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: OpenCartDto) {
+  openCart(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: OpenCartDto) {
     return this.cartService.openCart(toRequestContext(user, req), branchId, dto);
   }
 

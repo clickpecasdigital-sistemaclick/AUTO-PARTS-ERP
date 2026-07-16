@@ -30,7 +30,7 @@ export class ChartOfAccountsController {
   @RequirePermission('financial', 'create')
   create(
     @CurrentUser() user: AuthenticatedRequestUser,
-    @Body('companyId') companyId: string,
+    @Query('companyId') companyId: string,
     @Body() data: { code: string; name: string; type: string; parentId?: string },
   ) {
     return this.service.create(user.tenantId, companyId, data);

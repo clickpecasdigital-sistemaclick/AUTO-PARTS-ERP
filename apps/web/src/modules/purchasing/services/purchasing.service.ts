@@ -15,14 +15,14 @@ export const purchasingService = {
   // Solicitações
   listRequests: (params?: Record<string, unknown>) => httpClient.get<{ data: PurchaseRequest[] }>('/purchasing/requests', { params: params as never }),
   getRequest: (id: string) => httpClient.get<PurchaseRequest>(`/purchasing/requests/${id}`),
-  createRequest: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseRequest>('/purchasing/requests', { branchId, ...payload }),
+  createRequest: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseRequest>('/purchasing/requests', payload, { params: { branchId } }),
   submitRequest: (id: string, estimatedValue: number) => httpClient.post(`/purchasing/requests/${id}/submit`, { estimatedValue }),
 
   // Cotações
   listQuotations: () => httpClient.get<PurchaseQuotation[]>('/purchasing/quotations'),
   getQuotation: (id: string) => httpClient.get<PurchaseQuotation>(`/purchasing/quotations/${id}`),
   compareQuotation: (id: string) => httpClient.get<QuotationComparisonEntry[]>(`/purchasing/quotations/${id}/compare`),
-  createQuotation: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseQuotation>('/purchasing/quotations', { branchId, ...payload }),
+  createQuotation: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseQuotation>('/purchasing/quotations', payload, { params: { branchId } }),
   submitQuotationResponse: (quotationSupplierId: string, payload: Record<string, unknown>) =>
     httpClient.post(`/purchasing/quotations/suppliers/${quotationSupplierId}/response`, payload),
   awardQuotation: (id: string, quotationSupplierId: string) => httpClient.post(`/purchasing/quotations/${id}/award`, { quotationSupplierId }),
@@ -32,7 +32,7 @@ export const purchasingService = {
   // Pedidos
   listOrders: (params?: Record<string, unknown>) => httpClient.get<{ data: PurchaseOrder[]; total: number; page: number; perPage: number }>('/purchasing/orders', { params: params as never }),
   getOrder: (id: string) => httpClient.get<PurchaseOrder>(`/purchasing/orders/${id}`),
-  createOrder: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseOrder>('/purchasing/orders', { branchId, ...payload }),
+  createOrder: (branchId: string, payload: Record<string, unknown>) => httpClient.post<PurchaseOrder>('/purchasing/orders', payload, { params: { branchId } }),
   sendOrder: (id: string, estimatedValue: number) => httpClient.post(`/purchasing/orders/${id}/send`, { estimatedValue }),
   approveOrder: (id: string) => httpClient.post(`/purchasing/orders/${id}/approve`),
   duplicateOrder: (id: string) => httpClient.post<PurchaseOrder>(`/purchasing/orders/${id}/duplicate`),

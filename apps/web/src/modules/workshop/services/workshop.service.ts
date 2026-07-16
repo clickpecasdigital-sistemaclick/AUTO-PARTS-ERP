@@ -16,7 +16,7 @@ export const workshopService = {
   // Ordens de Serviço
   listOrders: (params: ServiceOrderQueryParams) => httpClient.get<{ data: ServiceOrder[]; total: number; page: number; perPage: number }>('/workshop/orders', { params: params as never }),
   getOrder: (id: string) => httpClient.get<ServiceOrder>(`/workshop/orders/${id}`),
-  createOrder: (branchId: string, payload: Record<string, unknown>) => httpClient.post<ServiceOrder>('/workshop/orders', { branchId, ...payload }),
+  createOrder: (branchId: string, payload: Record<string, unknown>) => httpClient.post<ServiceOrder>('/workshop/orders', payload, { params: { branchId } }),
   transitionOrder: (id: string, toStatus: string, notes?: string) => httpClient.post<ServiceOrder>(`/workshop/orders/${id}/transition`, { toStatus, notes }),
   cancelOrder: (id: string, reason: string) => httpClient.post<ServiceOrder>(`/workshop/orders/${id}/cancel`, { reason }),
   updateDiagnosis: (id: string, payload: Record<string, unknown>) => httpClient.post<ServiceOrder>(`/workshop/orders/${id}/diagnosis`, payload),
@@ -45,7 +45,7 @@ export const workshopService = {
   getAgenda: (startDate: string, endDate: string, mechanicId?: string, boxId?: string) =>
     httpClient.get<WorkshopAppointment[]>('/workshop/appointments', { params: { startDate, endDate, mechanicId, boxId } }),
   listWaitlist: () => httpClient.get<WorkshopAppointment[]>('/workshop/appointments/waitlist'),
-  createAppointment: (branchId: string, payload: Record<string, unknown>) => httpClient.post<WorkshopAppointment>('/workshop/appointments', { branchId, ...payload }),
+  createAppointment: (branchId: string, payload: Record<string, unknown>) => httpClient.post<WorkshopAppointment>('/workshop/appointments', payload, { params: { branchId } }),
   confirmAppointment: (id: string) => httpClient.post(`/workshop/appointments/${id}/confirm`),
   rescheduleAppointment: (id: string, newScheduledAt: string, durationMinutes?: number) => httpClient.post(`/workshop/appointments/${id}/reschedule`, { newScheduledAt, durationMinutes }),
   cancelAppointment: (id: string, reason: string) => httpClient.post(`/workshop/appointments/${id}/cancel`, { reason }),
@@ -63,7 +63,7 @@ export const workshopService = {
 
   // Catálogo de Serviços / Boxes
   listServices: (category?: string) => httpClient.get<ServiceCatalogItem[]>('/workshop/services', { params: { category } }),
-  listBoxes: (branchId?: string) => httpClient.get('/workshop/boxes', { params: { branchId } }),
+  listBoxes: (branchId?: string) => httpClient.get<{ id: string; code: string; name: string }[]>('/workshop/boxes', { params: { branchId } }),
 
   // Dashboard
   getKpis: (branchId?: string) => httpClient.get<WorkshopDashboardKpis>('/workshop/analytics/kpis', { params: { branchId } }),

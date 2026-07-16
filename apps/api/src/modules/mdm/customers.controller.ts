@@ -53,7 +53,7 @@ export class CustomersController {
 
   @Post()
   @RequirePermission('customers', 'create')
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('companyId') companyId: string, @Body() dto: CreateCustomerDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('companyId') companyId: string, @Body() dto: CreateCustomerDto) {
     return this.service.create(toRequestContext(user, req), companyId, dto);
   }
 

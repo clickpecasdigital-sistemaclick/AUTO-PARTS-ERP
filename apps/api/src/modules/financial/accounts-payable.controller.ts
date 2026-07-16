@@ -41,7 +41,7 @@ export class AccountsPayableController {
 
   @Post()
   @RequirePermission('financial', 'create')
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('companyId') companyId: string, @Body() dto: CreatePayableDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('companyId') companyId: string, @Body() dto: CreatePayableDto) {
     return this.service.create(toRequestContext(user, req), companyId, dto);
   }
 

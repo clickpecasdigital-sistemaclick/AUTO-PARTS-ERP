@@ -24,7 +24,7 @@ export const financialService = {
   // Contas a Pagar
   listPayables: (params: FinancialQueryParams) => httpClient.get<{ data: Payable[]; total: number; page: number; perPage: number }>('/financial/payables', { params: params as never }),
   getPayable: (id: string) => httpClient.get<Payable>(`/financial/payables/${id}`),
-  createPayable: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Payable>('/financial/payables', { companyId, ...payload }),
+  createPayable: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Payable>('/financial/payables', payload, { params: { companyId } }),
   settlePayable: (id: string, payload: Record<string, unknown>) => httpClient.post<Payable>(`/financial/payables/${id}/settle`, payload),
   reversePayable: (id: string, reason: string) => httpClient.post<Payable>(`/financial/payables/${id}/reverse`, { reason }),
   renegotiatePayable: (id: string, payload: Record<string, unknown>) => httpClient.post<Payable>(`/financial/payables/${id}/renegotiate`, payload),
@@ -32,7 +32,7 @@ export const financialService = {
   // Contas a Receber
   listReceivables: (params: FinancialQueryParams) => httpClient.get<{ data: Receivable[]; total: number; page: number; perPage: number }>('/financial/receivables', { params: params as never }),
   getReceivable: (id: string) => httpClient.get<Receivable>(`/financial/receivables/${id}`),
-  createReceivable: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Receivable>('/financial/receivables', { companyId, ...payload }),
+  createReceivable: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Receivable>('/financial/receivables', payload, { params: { companyId } }),
   settleReceivable: (id: string, payload: Record<string, unknown>) => httpClient.post<Receivable>(`/financial/receivables/${id}/settle`, payload),
   reverseReceivable: (id: string, reason: string) => httpClient.post<Receivable>(`/financial/receivables/${id}/reverse`, { reason }),
   renegotiateReceivable: (id: string, payload: Record<string, unknown>) => httpClient.post<Receivable>(`/financial/receivables/${id}/renegotiate`, payload),

@@ -43,7 +43,7 @@ export class WorkshopAppointmentsController {
   @Post()
   @RequirePermission('workshop', 'update')
   @ApiOperation({ summary: 'Agenda por mecânico/box/serviço — conflito de horário cai automaticamente na lista de espera' })
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: CreateAppointmentDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: CreateAppointmentDto) {
     return this.service.create(toRequestContext(user, req), branchId, dto);
   }
 

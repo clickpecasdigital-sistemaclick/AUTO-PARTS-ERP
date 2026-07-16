@@ -15,7 +15,7 @@ export const mdmService = {
   // Clientes
   listCustomers: (params: CustomerQueryParams) => httpClient.get<{ data: Customer[]; total: number; page: number; perPage: number }>('/mdm/customers', { params: params as never }),
   getCustomer: (id: string) => httpClient.get<Customer>(`/mdm/customers/${id}`),
-  createCustomer: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Customer>('/mdm/customers', { companyId, ...payload }),
+  createCustomer: (companyId: string, payload: Record<string, unknown>) => httpClient.post<Customer>('/mdm/customers', payload, { params: { companyId } }),
   updateCustomer: (id: string, payload: Record<string, unknown>) => httpClient.put<Customer>(`/mdm/customers/${id}`, payload),
   removeCustomer: (id: string) => httpClient.delete(`/mdm/customers/${id}`),
   getBirthdays: (month?: number) => httpClient.get<CustomerBirthday[]>('/mdm/customers/birthdays', { params: { month } }),
@@ -56,6 +56,6 @@ export const mdmService = {
   listEmployees: (departmentId?: string) => httpClient.get('/mdm/employees', { params: { departmentId } }),
   listSalespersons: () => httpClient.get('/mdm/salespersons'),
   getSalespersonRanking: () => httpClient.get('/mdm/salespersons/ranking'),
-  listMechanics: () => httpClient.get('/mdm/mechanics'),
+  listMechanics: () => httpClient.get<{ id: string; employee?: { id: string; name: string; photoUrl?: string | null } }[]>('/mdm/mechanics'),
   listCarriers: () => httpClient.get('/mdm/carriers'),
 };

@@ -31,10 +31,14 @@ export const pdvService = {
   // Busca
   searchProducts: (term: string) => httpClient.get<ProductSearchResult[]>('/pdv/search/products', { params: { term } }),
   searchByPlate: (plate: string) => httpClient.get('/pdv/search/by-plate', { params: { plate } }),
+  searchSales: (term: string) =>
+    httpClient.get<
+      { id: string; code: string; totalAmount: string; issuedAt: string; customer: { name: string }; items: { id: string; productId: string; quantity: string; unitPrice: string; product: { internalCode: string; shortDescription: string } }[] }[]
+    >('/pdv/search/sales', { params: { term } }),
 
   // Carrinho
   listPaymentMethods: () => httpClient.get<PaymentMethod[]>('/pdv/carts/payment-methods'),
-  openCart: (branchId: string, payload: Record<string, unknown>) => httpClient.post<Cart>('/pdv/carts', { branchId, ...payload }),
+  openCart: (branchId: string, payload: Record<string, unknown>) => httpClient.post<Cart>('/pdv/carts', payload, { params: { branchId } }),
   getCart: (id: string) => httpClient.get<Cart>(`/pdv/carts/${id}`),
   addItem: (cartId: string, payload: Record<string, unknown>) => httpClient.post<Cart>(`/pdv/carts/${cartId}/items`, payload),
   updateItem: (cartId: string, itemId: string, payload: Record<string, unknown>) => httpClient.put<Cart>(`/pdv/carts/${cartId}/items/${itemId}`, payload),

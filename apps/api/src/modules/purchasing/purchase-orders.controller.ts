@@ -61,7 +61,7 @@ export class PurchaseOrdersController {
 
   @Post()
   @RequirePermission('purchases', 'create')
-  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Body('branchId') branchId: string, @Body() dto: CreatePurchaseOrderDto) {
+  create(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Query('branchId') branchId: string, @Body() dto: CreatePurchaseOrderDto) {
     return this.service.create(toRequestContext(user, req), branchId, dto);
   }
 
