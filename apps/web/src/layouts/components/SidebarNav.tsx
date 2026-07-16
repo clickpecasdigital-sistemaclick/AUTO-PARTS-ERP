@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Clock, Search, Star } from 'lucide-react';
+import { Search, Star } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { navItems } from '@/navigation/nav-items';
 import { categoryLabels, type NavCategory, type NavItem } from '@/navigation/nav-types';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useFavoritesStore } from '@/stores/favorites.store';
-import { useRecentsStore } from '@/stores/recents.store';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -30,7 +29,6 @@ export function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   const { canAccess } = usePermissions();
   const favoriteIds = useFavoritesStore((s) => s.favoriteIds);
   const toggleFavorite = useFavoritesStore((s) => s.toggleFavorite);
-  const recentIds = useRecentsStore((s) => s.recentIds);
   const [search, setSearch] = React.useState('');
 
   const visibleItems = React.useMemo(() => navItems.filter((item) => canAccess(item.permissions)), [canAccess]);
@@ -42,7 +40,6 @@ export function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
   }, [visibleItems, search]);
 
   const favoriteItems = visibleItems.filter((item) => favoriteIds.includes(item.id));
-  const recentItems = recentIds.map((id) => visibleItems.find((item) => item.id === id)).filter(Boolean) as NavItem[];
 
   const groupedByCategory = categoryOrder
     .map((category) => ({ category, items: filteredItems.filter((item) => item.category === category) }))
@@ -125,17 +122,6 @@ export function SidebarNav({ collapsed, onNavigate }: SidebarNavProps) {
               </p>
             )}
             <ul className="space-y-0.5">{favoriteItems.map(renderNavLink)}</ul>
-          </div>
-        )}
-
-        {!search && recentItems.length > 0 && (
-          <div>
-            {!collapsed && (
-              <p className="flex items-center gap-1.5 px-3 pb-1 text-xs font-medium uppercase tracking-wide text-sidebar-foreground/50">
-                <Clock className="size-3" /> Recentes
-              </p>
-            )}
-            <ul className="space-y-0.5">{recentItems.map(renderNavLink)}</ul>
           </div>
         )}
 

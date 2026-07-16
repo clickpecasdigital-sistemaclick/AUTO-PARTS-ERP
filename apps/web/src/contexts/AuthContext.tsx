@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/api/supabaseClient';
+import { httpClient } from '@/api/http.client';
+import { useWorkspaceStore } from '@/stores/workspace.store';
 import type { AuthenticatedUser } from '@/types/user.types';
+import type { Company, Branch } from '@/types/user.types';
 
 interface AuthContextValue {
   session: Session | null;
@@ -53,6 +56,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       permissions: session.user.user_metadata?.permissions ?? [],
     });
   }, [session]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    // Busca as empresas/filiais do tenant uma vez por sessão — sem isso,
+    // `activeBranchId` fica sempre `null` e qualquer tela que dependa de
+    // filial ativa (PDV, Fiscal, Compras...) não tem como funcionar.
+    httpClient
+      .get<{ companies: Company[]; branches: Branch[] }>('/workspace')
+      .then(({ companies, branches }) => {
+        useWorkspaceStore.getState().setWorkspace(companies, branches);
+        const { activeCompanyId, activeBranchId } = useWorkspaceStore.getState();
+        if (!activeCompanyId && companies[0]) useWorkspaceStore.getState().setActiveCompany(companies[0].id);
+        if (!activeBranchId && branches[0]) useWorkspaceStore.getState().setActiveBranch(branches[0].id);
+      })
+      .catch(() => {
+        // Silencioso de propósito: se o workspace falhar ao carregar, o
+        // resto do app continua funcionando (dashboard, config, etc.) —
+        // só as telas que exigem filial ativa vão pedir pra selecionar.
+      });
+  }, [session?.user?.id]);
 
   async function signOut() {
     await supabase.auth.signOut();

@@ -21,6 +21,7 @@ import { LgpdModule } from './modules/lgpd/lgpd.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { SaasModule } from './modules/saas/saas.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 
@@ -56,6 +57,7 @@ import { CopilotModule } from './modules/copilot/copilot.module';
     BackupModule,
     SaasModule,
     IntegrationsModule,
+    WorkspaceModule,
     SuperAdminModule,
     CopilotModule,
   ],

@@ -6,7 +6,12 @@
  * responsabilidade do TanStack Query / IndexedDB e será endereçado quando
  * os módulos de negócio precisarem de leitura offline real).
  */
-const CACHE_NAME = 'autocore-erp-shell-v1';
+// Lembrete: troque esse sufixo (v2, v3...) a cada deploy que altere
+// comportamento visível — é a única forma do navegador perceber que o
+// Service Worker mudou e descartar o app shell antigo em cache. Sem isso,
+// usuários que já instalaram o PWA continuam presos numa versão antiga
+// mesmo depois de um hard refresh (Ctrl+Shift+R não afeta o cache do SW).
+const CACHE_NAME = 'autocore-erp-shell-v2';
 const APP_SHELL_URLS = ['/', '/offline.html', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
