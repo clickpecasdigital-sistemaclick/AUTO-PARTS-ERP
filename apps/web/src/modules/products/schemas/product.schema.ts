@@ -10,34 +10,34 @@ import { z } from 'zod';
  */
 
 export const generalInfoSchema = z.object({
-  internalCode: z.string().max(60).optional().or(z.literal('')),
-  barcode: z.string().max(60).optional().or(z.literal('')),
-  manufacturerCode: z.string().max(60).optional().or(z.literal('')),
-  originalCode: z.string().max(60).optional().or(z.literal('')),
-  similarCode: z.string().max(60).optional().or(z.literal('')),
+  internalCode: z.string().max(60).nullish().or(z.literal('')),
+  barcode: z.string().max(60).nullish().or(z.literal('')),
+  manufacturerCode: z.string().max(60).nullish().or(z.literal('')),
+  originalCode: z.string().max(60).nullish().or(z.literal('')),
+  similarCode: z.string().max(60).nullish().or(z.literal('')),
   shortDescription: z.string().min(3, 'Descrição curta é obrigatória').max(180),
-  fullDescription: z.string().optional().or(z.literal('')),
-  brandId: z.string().uuid().optional().or(z.literal('')),
-  manufacturerId: z.string().uuid().optional().or(z.literal('')),
-  groupId: z.string().uuid().optional().or(z.literal('')),
-  subgroupId: z.string().uuid().optional().or(z.literal('')),
-  categoryId: z.string().uuid().optional().or(z.literal('')),
+  fullDescription: z.string().nullish().or(z.literal('')),
+  brandId: z.string().uuid().nullish().or(z.literal('')),
+  manufacturerId: z.string().uuid().nullish().or(z.literal('')),
+  groupId: z.string().uuid().nullish().or(z.literal('')),
+  subgroupId: z.string().uuid().nullish().or(z.literal('')),
+  categoryId: z.string().uuid().nullish().or(z.literal('')),
   unitId: z.string().uuid({ message: 'Selecione a unidade de medida' }),
   weightKg: z.coerce.number().min(0).optional(),
   heightCm: z.coerce.number().min(0).optional(),
   widthCm: z.coerce.number().min(0).optional(),
   lengthCm: z.coerce.number().min(0).optional(),
   warrantyDays: z.coerce.number().int().min(0).optional(),
-  notes: z.string().optional().or(z.literal('')),
+  notes: z.string().nullish().or(z.literal('')),
   isActive: z.boolean().default(true),
 });
 
 export const taxationSchema = z.object({
-  ncmCode: z.string().max(10).optional().or(z.literal('')),
-  cestCode: z.string().max(10).optional().or(z.literal('')),
-  defaultCfopCode: z.string().max(10).optional().or(z.literal('')),
-  defaultCstCode: z.string().max(5).optional().or(z.literal('')),
-  defaultCsosnCode: z.string().max(5).optional().or(z.literal('')),
+  ncmCode: z.string().max(10).nullish().or(z.literal('')),
+  cestCode: z.string().max(10).nullish().or(z.literal('')),
+  defaultCfopCode: z.string().max(10).nullish().or(z.literal('')),
+  defaultCstCode: z.string().max(5).nullish().or(z.literal('')),
+  defaultCsosnCode: z.string().max(5).nullish().or(z.literal('')),
   origin: z.enum([
     'nacional',
     'estrangeira_importacao_direta',
@@ -58,7 +58,7 @@ export const taxationSchema = z.object({
 const stockBaseSchema = z.object({
   minStock: z.coerce.number().min(0).default(0),
   maxStock: z.coerce.number().min(0).optional(),
-  defaultLocationId: z.string().uuid().optional().or(z.literal('')),
+  defaultLocationId: z.string().uuid().nullish().or(z.literal('')),
 });
 
 /** Versão com a regra cruzada (máximo >= mínimo) — usada isoladamente na aba de Estoque. */
@@ -73,7 +73,7 @@ export const pricingSchema = z.object({
   wholesalePrice: z.coerce.number().min(0).optional(),
   workshopPrice: z.coerce.number().min(0).optional(),
   distributorPrice: z.coerce.number().min(0).optional(),
-  primarySupplierId: z.string().uuid().optional().or(z.literal('')),
+  primarySupplierId: z.string().uuid().nullish().or(z.literal('')),
 });
 
 /** Schema completo — usado no submit final do formulário (todas as abas validadas juntas). */
@@ -94,7 +94,7 @@ export type PricingFormValues = z.infer<typeof pricingSchema>;
 
 export const productSupplierSchema = z.object({
   supplierId: z.string().uuid({ message: 'Selecione um fornecedor' }),
-  supplierSku: z.string().optional().or(z.literal('')),
+  supplierSku: z.string().nullish().or(z.literal('')),
   lastPurchasePrice: z.coerce.number().min(0).optional(),
   leadTimeDays: z.coerce.number().int().min(0).optional(),
   isPreferred: z.boolean().default(false),
@@ -103,14 +103,14 @@ export type ProductSupplierFormValues = z.infer<typeof productSupplierSchema>;
 
 export const productApplicationSchema = z.object({
   vehicleVersionId: z.string().uuid({ message: 'Selecione uma versão de veículo' }),
-  position: z.string().optional().or(z.literal('')),
-  notes: z.string().optional().or(z.literal('')),
+  position: z.string().nullish().or(z.literal('')),
+  notes: z.string().nullish().or(z.literal('')),
 });
 export type ProductApplicationFormValues = z.infer<typeof productApplicationSchema>;
 
 export const productCrossReferenceSchema = z.object({
   relatedProductId: z.string().uuid({ message: 'Selecione um produto' }),
   type: z.enum(['similar', 'equivalent', 'complementary', 'substitute']),
-  notes: z.string().optional().or(z.literal('')),
+  notes: z.string().nullish().or(z.literal('')),
 });
 export type ProductCrossReferenceFormValues = z.infer<typeof productCrossReferenceSchema>;

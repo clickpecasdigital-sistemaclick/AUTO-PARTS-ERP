@@ -105,8 +105,7 @@ export function AdvancedDataTable<TData>({
     getFilteredRowModel: getFilteredRowModel(),
   });
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `table` mantém a mesma referência entre renders;
-  // `rowSelection` força o recálculo quando a seleção de fato muda.
+  // `table` mantém a mesma referência entre renders; `rowSelection` força o recálculo quando a seleção de fato muda.
   const selectedRows = React.useMemo(() => table.getSelectedRowModel().rows.map((r) => r.original), [table, rowSelection]);
 
   React.useEffect(() => {

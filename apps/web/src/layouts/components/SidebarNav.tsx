@@ -9,7 +9,7 @@ import { useFavoritesStore } from '@/stores/favorites.store';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
-const categoryOrder: NavCategory[] = ['operacional', 'comercial', 'financeiro', 'gestao', 'sistema'];
+const categoryOrder: NavCategory[] = ['gestao', 'administracao', 'cadastro', 'veiculo', 'financeiro', 'oficina', 'produtos', 'escrita-fiscal', 'integracao'];
 
 interface SidebarNavProps {
   collapsed: boolean;

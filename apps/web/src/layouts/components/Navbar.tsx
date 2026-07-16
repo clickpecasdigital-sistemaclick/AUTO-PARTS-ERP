@@ -2,7 +2,6 @@ import { CheckSquare, Menu, MessageSquare, Moon, Search, Sun } from 'lucide-reac
 import { useTheme } from '@/hooks/useTheme';
 import { useKeyboardShortcut } from '@/hooks/useKeyboardShortcut';
 import { useRealtimeNotifications } from '@/hooks/useRealtimeNotifications';
-import { useSidebarStore } from '@/stores/sidebar.store';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/shell/Logo';
 import { CompanyBranchSwitcher } from '@/components/shell/CompanyBranchSwitcher';
@@ -26,7 +25,6 @@ interface NavbarProps {
 export function Navbar({ onOpenMobileNav }: NavbarProps) {
   const { resolvedTheme, setTheme } = useTheme();
   const openCommandPalette = useCommandPaletteStore((s) => s.open);
-  const collapsed = useSidebarStore((s) => s.collapsed);
   const { notifications, markAllAsRead } = useRealtimeNotifications();
 
   useKeyboardShortcut('k', openCommandPalette);
@@ -36,7 +34,7 @@ export function Navbar({ onOpenMobileNav }: NavbarProps) {
       <Button variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menu" onClick={onOpenMobileNav}>
         <Menu className="size-5" />
       </Button>
-      {collapsed && <Logo iconOnly className="hidden md:flex" />}
+      <Logo className="hidden md:flex" />
       <div className="hidden sm:block">
         <CompanyBranchSwitcher />
       </div>

@@ -1,5 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+const emptyToUndefined = ({ value }: { value: unknown }) => (value === '' ? undefined : value);
 
 export enum PersonTypeDto {
   individual = 'individual',
@@ -32,7 +35,7 @@ export class CreateCustomerDto {
   @ApiPropertyOptional() @IsOptional() @IsString() classification?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() category?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() segment?: string;
-  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional() @Transform(emptyToUndefined) @IsOptional() @IsEmail() email?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() whatsapp?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() website?: string;
@@ -77,7 +80,7 @@ export class CreateContactDto {
   @ApiProperty() @IsString() name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() whatsapp?: string;
-  @ApiPropertyOptional() @IsOptional() @IsEmail() email?: string;
+  @ApiPropertyOptional() @Transform(emptyToUndefined) @IsOptional() @IsEmail() email?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() notes?: string;
 }
 

@@ -7,6 +7,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { configureSecurity } from './common/security/security.config';
+import { EmptyStringToUndefinedPipe } from './common/pipes/empty-string-to-undefined.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -23,6 +24,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.useGlobalPipes(
+    new EmptyStringToUndefinedPipe(),
     new ValidationPipe({
       whitelist: true,
       transform: true,

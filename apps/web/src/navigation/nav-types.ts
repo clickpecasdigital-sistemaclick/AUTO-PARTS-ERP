@@ -13,7 +13,7 @@ export interface ModulePermissions {
   required: PermissionAction[];
 }
 
-export type NavCategory = 'operacional' | 'comercial' | 'financeiro' | 'gestao' | 'sistema';
+export type NavCategory = 'gestao' | 'administracao' | 'cadastro' | 'veiculo' | 'financeiro' | 'oficina' | 'produtos' | 'escrita-fiscal' | 'integracao';
 
 export interface NavItem {
   id: string;
@@ -29,9 +29,13 @@ export interface NavItem {
 }
 
 export const categoryLabels: Record<NavCategory, string> = {
-  operacional: 'Operacional',
-  comercial: 'Comercial',
-  financeiro: 'Financeiro',
   gestao: 'Gestão',
-  sistema: 'Sistema',
+  administracao: 'Administração',
+  cadastro: 'Cadastro',
+  veiculo: 'Veículo',
+  financeiro: 'Financeiro',
+  oficina: 'Oficina',
+  produtos: 'Produtos',
+  'escrita-fiscal': 'Escrita Fiscal',
+  integracao: 'Integração',
 };
