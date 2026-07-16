@@ -94,6 +94,26 @@ export class ServiceOrdersService {
     const updated = await this.repository.update(id, { status: toStatus as never, ...extraData });
     await this.repository.recordStatusChange(ctx.tenantId, id, order.status, toStatus, ctx.userId, notes);
     await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'update', entity: 'ServiceOrder', entityId: id, before: { status: order.status }, after: { status: toStatus } });
+
+    // Ao concluir a OS, gera a conta a receber correspondente — sem isso,
+    // mão de obra/peças eram baixadas do estoque mas o cliente nunca era
+    // cobrado em lugar nenhum do módulo Financeiro.
+    if (toStatus === 'completed' && Number(order.totalAmount) > 0) {
+      const branch = await this.prisma.branch.findUnique({ where: { id: order.branchId }, select: { companyId: true } });
+      if (branch) {
+        await this.prisma.accountsReceivable.create({
+          data: {
+            tenantId: ctx.tenantId,
+            companyId: branch.companyId,
+            customerId: order.customerId,
+            amount: order.totalAmount,
+            dueDate: new Date(),
+            notes: `Ordem de Serviço ${order.code}`,
+          },
+        });
+      }
+    }
+
     return updated;
   }
 

@@ -7,6 +7,7 @@ import { PurchaseOrdersController } from './purchase-orders.controller';
 import { GoodsReceiptsController } from './goods-receipts.controller';
 import { PurchaseSuggestionsController } from './purchase-suggestions.controller';
 import { Supplier360Controller } from './supplier-360.controller';
+import { SuppliersController } from './suppliers.controller';
 import { PurchasingAnalyticsController } from './purchasing-analytics.controller';
 import { PurchasingImportController } from './purchasing-import.controller';
 import { PurchaseRequestsService } from './purchase-requests.service';
@@ -17,6 +18,8 @@ import { PurchaseOrdersRepository } from './purchase-orders.repository';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { PurchaseSuggestionsService } from './purchase-suggestions.service';
 import { Supplier360Service } from './supplier-360.service';
+import { SuppliersService } from './suppliers.service';
+import { SuppliersRepository } from './suppliers.repository';
 import { PurchasingAnalyticsService } from './purchasing-analytics.service';
 import { PurchasingImportExportService } from './purchasing-import-export.service';
 
@@ -38,6 +41,7 @@ import { PurchasingImportExportService } from './purchasing-import-export.servic
     GoodsReceiptsController,
     PurchaseSuggestionsController,
     Supplier360Controller,
+    SuppliersController,
     PurchasingAnalyticsController,
     PurchasingImportController,
   ],
@@ -50,6 +54,8 @@ import { PurchasingImportExportService } from './purchasing-import-export.servic
     GoodsReceiptsService,
     PurchaseSuggestionsService,
     Supplier360Service,
+    SuppliersService,
+    SuppliersRepository,
     PurchasingAnalyticsService,
     PurchasingImportExportService,
   ],

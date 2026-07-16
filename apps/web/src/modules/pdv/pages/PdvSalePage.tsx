@@ -5,7 +5,6 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/ui/form-field';
 import { LoadingScreen } from '@/components/common/LoadingScreen';
 import {
@@ -19,6 +18,8 @@ import { useKeyboardShortcut } from '@/hooks/useKeyboardShortcut';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL } from '@/utils/formatters';
 import { useWarehouses } from '@/modules/inventory/hooks/useInventory';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomers } from '@/modules/mdm/hooks/useMdm';
 import { PdvProductSearch } from '../components/PdvProductSearch';
 import { PdvCartTable } from '../components/PdvCartTable';
 import { PdvPaymentDialog } from '../components/PdvPaymentDialog';
@@ -54,6 +55,7 @@ export default function PdvSalePage() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
 
   const { data: warehouses } = useWarehouses();
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
   const { data: cart, isLoading } = useCart(cartId ?? undefined);
 
   useEffect(() => {
@@ -167,10 +169,11 @@ export default function PdvSalePage() {
               </p>
               <p className="text-sm">{cart.customer.tradeName ?? cart.customer.name}</p>
               <Badge variant={creditVariant[cart.customer.creditStatus] ?? 'secondary'}>{cart.customer.creditStatus}</Badge>
-              <Input
-                placeholder="Trocar cliente (ID)"
-                onBlur={(e) => e.target.value && setCustomer.mutate({ customerId: e.target.value })}
-                className="font-numeric"
+              <Autocomplete
+                value={null}
+                onChange={(v) => v && setCustomer.mutate({ customerId: v })}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.tradeName ?? c.name }))}
+                placeholder="Trocar cliente..."
               />
               {cart.customerVehicle && (
                 <p className="flex items-center gap-1 text-xs text-muted-foreground">

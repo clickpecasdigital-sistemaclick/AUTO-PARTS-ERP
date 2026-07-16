@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { CheckCircle2, RotateCcw, X } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -25,6 +25,8 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrencyBRL, formatDate } from '@/utils/formatters';
 import { useApproveReturn, useCreateReturn, usePdvReturns } from '../hooks/usePdv';
+import { AsyncSelect, Autocomplete } from '@/components/ui/autocomplete';
+import { pdvService } from '../services/pdv.service';
 import { returnStatusLabels, returnTypeLabels, type SaleReturnStatus, type SaleReturnType } from '../types/pdv.types';
 
 const statusVariant: Record<SaleReturnStatus, 'secondary' | 'warning' | 'success' | 'destructive'> = {
@@ -54,6 +56,31 @@ export default function PdvReturnsPage() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const form = useForm<ReturnFormValues>({ defaultValues: { type: 'partial' } });
+  const salesCacheRef = useRef(new Map<string, Awaited<ReturnType<typeof pdvService.searchSales>>[number]>());
+  const [selectedSaleItems, setSelectedSaleItems] = useState<Awaited<ReturnType<typeof pdvService.searchSales>>[number]['items']>([]);
+
+  async function loadSaleOptions(term: string) {
+    const sales = await pdvService.searchSales(term);
+    sales.forEach((s) => salesCacheRef.current.set(s.id, s));
+    return sales.map((s) => ({ value: s.id, label: `${s.code} — ${s.customer.name}` }));
+  }
+
+  function handleSelectSale(saleId: string | null) {
+    form.setValue('saleId', saleId ?? '', { shouldValidate: true });
+    form.setValue('saleItemId', '');
+    form.setValue('productId', '');
+    setSelectedSaleItems(saleId ? (salesCacheRef.current.get(saleId)?.items ?? []) : []);
+  }
+
+  function handleSelectSaleItem(saleItemId: string | null) {
+    form.setValue('saleItemId', saleItemId ?? '', { shouldValidate: true });
+    const item = selectedSaleItems.find((i) => i.id === saleItemId);
+    if (item) {
+      form.setValue('productId', item.productId, { shouldValidate: true });
+      form.setValue('unitPrice', Number(item.unitPrice));
+      form.setValue('quantity', Number(item.quantity));
+    }
+  }
 
   async function onSubmit(values: ReturnFormValues) {
     await createReturn.mutateAsync({
@@ -113,8 +140,14 @@ export default function PdvReturnsPage() {
             <DialogTitle>Nova devolução</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Venda (ID)" required>
-              <Input {...form.register('saleId', { required: true })} placeholder="uuid da venda original" />
+            <FormField label="Venda" required>
+              <AsyncSelect
+                value={form.watch('saleId') || null}
+                onChange={handleSelectSale}
+                loadOptions={loadSaleOptions}
+                placeholder="Buscar por código da venda ou cliente..."
+                emptyMessage="Digite para buscar vendas pagas."
+              />
             </FormField>
             <FormField label="Tipo" required>
               <Select onValueChange={(v) => form.setValue('type', v as SaleReturnType)} value={form.watch('type')}>
@@ -133,11 +166,14 @@ export default function PdvReturnsPage() {
             <FormField label="Motivo" required>
               <Input {...form.register('reason', { required: true })} />
             </FormField>
-            <FormField label="Item da venda (ID)" required>
-              <Input {...form.register('saleItemId', { required: true })} placeholder="uuid do SaleItem original" />
-            </FormField>
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} />
+            <FormField label="Item da venda" required hint={!form.watch('saleId') ? 'Escolha a venda primeiro' : undefined}>
+              <Autocomplete
+                value={form.watch('saleItemId') || null}
+                onChange={handleSelectSaleItem}
+                options={selectedSaleItems.map((i) => ({ value: i.id, label: `${i.product.internalCode} — ${i.product.shortDescription} (qtd. ${i.quantity})` }))}
+                placeholder="Selecione o item devolvido..."
+                disabled={!form.watch('saleId')}
+              />
             </FormField>
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Quantidade" required>

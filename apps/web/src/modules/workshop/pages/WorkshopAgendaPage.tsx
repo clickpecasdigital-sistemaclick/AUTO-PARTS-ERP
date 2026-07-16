@@ -18,7 +18,9 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { appointmentStatusLabels, type WorkshopAppointmentStatus } from '../types/workshop.types';
-import { useCancelAppointment, useConfirmAppointment, useCreateAppointment, useWaitlist, useWorkshopAgenda } from '../hooks/useWorkshop';
+import { useBoxes, useCancelAppointment, useConfirmAppointment, useCreateAppointment, useWaitlist, useWorkshopAgenda } from '../hooks/useWorkshop';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomers, useMechanics } from '@/modules/mdm/hooks/useMdm';
 
 const statusVariant: Record<WorkshopAppointmentStatus, 'secondary' | 'warning' | 'success' | 'destructive'> = {
   scheduled: 'secondary',
@@ -59,6 +61,9 @@ export default function WorkshopAgendaPage() {
 
   const [isOpen, setIsOpen] = useState(false);
   const form = useForm<FormValues>({ defaultValues: { durationMinutes: 60 } });
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
+  const { data: mechanicOptions } = useMechanics();
+  const { data: boxOptions } = useBoxes();
 
   async function onSubmit(values: FormValues) {
     if (!activeBranchId) return;
@@ -144,14 +149,29 @@ export default function WorkshopAgendaPage() {
             <DialogTitle>Novo agendamento</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Cliente (ID)" required>
-              <Input {...form.register('customerId', { required: true })} placeholder="uuid do cliente" />
+            <FormField label="Cliente" required>
+              <Autocomplete
+                value={form.watch('customerId') ?? null}
+                onChange={(v) => form.setValue('customerId', v ?? '', { shouldValidate: true })}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Buscar cliente..."
+              />
             </FormField>
-            <FormField label="Mecânico (ID)">
-              <Input {...form.register('mechanicId')} placeholder="uuid do mecânico (opcional)" />
+            <FormField label="Mecânico">
+              <Autocomplete
+                value={form.watch('mechanicId') ?? null}
+                onChange={(v) => form.setValue('mechanicId', v ?? undefined)}
+                options={(mechanicOptions ?? []).map((m) => ({ value: m.id, label: m.employee?.name ?? m.id }))}
+                placeholder="Buscar mecânico (opcional)..."
+              />
             </FormField>
-            <FormField label="Box (ID)">
-              <Input {...form.register('boxId')} placeholder="uuid do box (opcional)" />
+            <FormField label="Box">
+              <Autocomplete
+                value={form.watch('boxId') ?? null}
+                onChange={(v) => form.setValue('boxId', v ?? undefined)}
+                options={(boxOptions ?? []).map((b) => ({ value: b.id, label: `${b.name} (${b.code})` }))}
+                placeholder="Selecione o box (opcional)..."
+              />
             </FormField>
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Data" required>

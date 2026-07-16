@@ -24,6 +24,8 @@ import {
 import { EmptyState } from '@/components/common/EmptyState';
 import { formatDate } from '@/utils/formatters';
 import { usePermissions } from '@/hooks/usePermissions';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import {
   useCancelTransfer,
   useCreateTransfer,
@@ -67,6 +69,7 @@ export default function StockTransfersPage() {
   const [isOpen, setIsOpen] = useState(false);
 
   const form = useForm<TransferFormValues>();
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
 
   async function onSubmit(values: TransferFormValues) {
     await createTransfer.mutateAsync({
@@ -168,8 +171,13 @@ export default function StockTransfersPage() {
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} placeholder="uuid do produto" />
+            <FormField label="Produto" required>
+              <Autocomplete
+                value={form.watch('productId') ?? null}
+                onChange={(v) => form.setValue('productId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Quantidade" required>
               <Input type="number" step="0.0001" {...form.register('quantity', { required: true, valueAsNumber: true })} className="font-numeric" />

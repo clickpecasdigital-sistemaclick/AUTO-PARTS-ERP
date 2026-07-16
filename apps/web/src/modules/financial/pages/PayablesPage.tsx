@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/dialog';
 import type { ColumnDef } from '@tanstack/react-table';
 import { usePagination } from '@/hooks/usePagination';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useSupplierOptions } from '@/modules/products/hooks/useCatalogs';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL, formatDate } from '@/utils/formatters';
@@ -64,6 +66,7 @@ export default function PayablesPage() {
   const [newDueDate, setNewDueDate] = useState('');
 
   const form = useForm<CreateFormValues>();
+  const { data: supplierOptions } = useSupplierOptions();
 
   async function onCreate(values: CreateFormValues) {
     if (!activeCompanyId) return;
@@ -170,8 +173,13 @@ export default function PayablesPage() {
             <DialogTitle>Novo título a pagar</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onCreate)} className="space-y-4">
-            <FormField label="Fornecedor (ID)">
-              <Input {...form.register('supplierId')} placeholder="uuid do fornecedor (opcional)" />
+            <FormField label="Fornecedor">
+              <Autocomplete
+                value={form.watch('supplierId') ?? null}
+                onChange={(v) => form.setValue('supplierId', v ?? undefined)}
+                options={(supplierOptions ?? []).map((s) => ({ value: s.id, label: s.name ?? s.code ?? s.id }))}
+                placeholder="Buscar fornecedor (opcional)..."
+              />
             </FormField>
             <FormField label="Número do documento">
               <Input {...form.register('documentNumber')} />

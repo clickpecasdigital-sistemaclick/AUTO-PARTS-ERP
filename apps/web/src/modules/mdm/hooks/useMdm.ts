@@ -8,6 +8,10 @@ export function useCustomers(params: CustomerQueryParams) {
   return useQuery({ queryKey: [KEY, 'customers', params], queryFn: () => mdmService.listCustomers(params), placeholderData: (prev) => prev });
 }
 
+export function useMechanics() {
+  return useQuery({ queryKey: [KEY, 'mechanics'], queryFn: mdmService.listMechanics, staleTime: 1000 * 60 * 5 });
+}
+
 export function useCustomer(id: string | undefined) {
   return useQuery({ queryKey: [KEY, 'customers', id], queryFn: () => mdmService.getCustomer(id!), enabled: !!id });
 }

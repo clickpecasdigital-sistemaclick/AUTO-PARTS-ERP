@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/dialog';
 import { DataTable } from '@/components/ui/data-table';
 import { usePagination } from '@/hooks/usePagination';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useCreateMovement, useStockMovements, useWarehouses } from '../hooks/useInventory';
 import { stockMovementTypeLabels, type StockMovementType } from '../types/inventory.types';
@@ -48,6 +50,7 @@ export default function StockMovementsPage() {
   const [isOpen, setIsOpen] = useState(false);
 
   const form = useForm<MovementFormValues>();
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
   const selectedType = form.watch('type');
   const reasonRequired = REASON_REQUIRED_MOVEMENT_TYPES.includes(selectedType);
 
@@ -87,8 +90,13 @@ export default function StockMovementsPage() {
             <DialogTitle>Nova movimentação</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} placeholder="uuid do produto" />
+            <FormField label="Produto" required>
+              <Autocomplete
+                value={form.watch('productId') ?? null}
+                onChange={(v) => form.setValue('productId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Depósito" required>
               <Select onValueChange={(v) => form.setValue('warehouseId', v)} value={form.watch('warehouseId')}>

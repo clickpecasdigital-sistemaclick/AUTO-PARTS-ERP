@@ -13,6 +13,8 @@ const IMPLEMENTED_NAV_IDS = [
   'configuracoes',
   'produtos',
   'produtos-catalogo-aplicacoes',
+  'fornecedores',
+  'usuarios',
   'estoque',
   'estoque-movimentacoes',
   'estoque-transferencias',

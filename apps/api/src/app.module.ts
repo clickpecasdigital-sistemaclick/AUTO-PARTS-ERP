@@ -22,6 +22,7 @@ import { BackupModule } from './modules/backup/backup.module';
 import { SaasModule } from './modules/saas/saas.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { UsersModule } from './modules/users/users.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 
@@ -58,6 +59,7 @@ import { CopilotModule } from './modules/copilot/copilot.module';
     SaasModule,
     IntegrationsModule,
     WorkspaceModule,
+    UsersModule,
     SuperAdminModule,
     CopilotModule,
   ],

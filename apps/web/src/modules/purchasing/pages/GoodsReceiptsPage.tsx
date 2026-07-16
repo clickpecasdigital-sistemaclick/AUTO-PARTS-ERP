@@ -17,12 +17,15 @@ import {
 import { EmptyState } from '@/components/common/EmptyState';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatDate } from '@/utils/formatters';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useWarehouses } from '@/modules/inventory/hooks/useInventory';
 import {
   useConferItem,
   useCreateGoodsReceipt,
   useFinalizeReceipt,
   useGoodsReceipt,
   useGoodsReceipts,
+  usePurchaseOrders,
 } from '../hooks/usePurchasing';
 import type { GoodsReceiptItemDisposition, GoodsReceiptStatus } from '../types/purchasing.types';
 
@@ -59,6 +62,8 @@ export default function GoodsReceiptsPage() {
   const [drafts, setDrafts] = useState<Record<string, { accepted: number; rejected: number }>>({});
 
   const form = useForm<ReceiptFormValues>();
+  const { data: warehouses } = useWarehouses();
+  const { data: openOrders } = usePurchaseOrders({ status: 'approved' });
 
   async function onSubmit(values: ReceiptFormValues) {
     await createReceipt.mutateAsync(values as unknown as Record<string, unknown>);
@@ -192,11 +197,21 @@ export default function GoodsReceiptsPage() {
             <DialogTitle>Novo recebimento</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Pedido de Compra (ID)" required>
-              <Input {...form.register('purchaseOrderId', { required: true })} placeholder="uuid do pedido" />
+            <FormField label="Pedido de Compra" required>
+              <Autocomplete
+                value={form.watch('purchaseOrderId') ?? null}
+                onChange={(v) => form.setValue('purchaseOrderId', v ?? '', { shouldValidate: true })}
+                options={(openOrders?.data ?? []).map((o) => ({ value: o.id, label: o.code }))}
+                placeholder="Buscar pedido aprovado..."
+              />
             </FormField>
-            <FormField label="Depósito (ID)" required>
-              <Input {...form.register('warehouseId', { required: true })} placeholder="uuid do depósito" />
+            <FormField label="Depósito" required>
+              <Autocomplete
+                value={form.watch('warehouseId') ?? null}
+                onChange={(v) => form.setValue('warehouseId', v ?? '', { shouldValidate: true })}
+                options={(warehouses ?? []).map((w) => ({ value: w.id, label: `${w.name} (${w.code})` }))}
+                placeholder="Selecione o depósito..."
+              />
             </FormField>
             <FormField label="Número da NF do fornecedor">
               <Input {...form.register('invoiceNumber')} />

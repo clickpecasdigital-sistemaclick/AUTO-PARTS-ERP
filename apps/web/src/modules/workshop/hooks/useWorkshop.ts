@@ -77,6 +77,10 @@ export function useServicesCatalog(category?: string) {
   return useQuery({ queryKey: [KEY, 'services', category], queryFn: () => workshopService.listServices(category) });
 }
 
+export function useBoxes(branchId?: string) {
+  return useQuery({ queryKey: [KEY, 'boxes', branchId], queryFn: () => workshopService.listBoxes(branchId) });
+}
+
 export function useChecklistTemplates() {
   return useQuery({ queryKey: [KEY, 'checklist-templates'], queryFn: workshopService.listChecklistTemplates });
 }

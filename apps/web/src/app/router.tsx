@@ -17,6 +17,8 @@ const SettingsPage = lazy(() => import('@/modules/settings/pages/SettingsPage'))
 const ProductListPage = lazy(() => import('@/modules/products/pages/ProductListPage'));
 const ProductFormPage = lazy(() => import('@/modules/products/pages/ProductFormPage'));
 const VehicleApplicationsCatalogPage = lazy(() => import('@/modules/products/pages/VehicleApplicationsCatalogPage'));
+const SuppliersListPage = lazy(() => import('@/modules/purchasing/pages/SuppliersListPage'));
+const UsersPage = lazy(() => import('@/modules/settings/pages/UsersPage'));
 const InventoryDashboardPage = lazy(() => import('@/modules/inventory/pages/InventoryDashboardPage'));
 const StockMovementsPage = lazy(() => import('@/modules/inventory/pages/StockMovementsPage'));
 const StockTransfersPage = lazy(() => import('@/modules/inventory/pages/StockTransfersPage'));
@@ -66,9 +68,11 @@ function withSuspense(Component: LazyExoticComponent<() => JSX.Element>) {
 
 const dashboardNavItem = navItems.find((item) => item.id === 'dashboard')!;
 const settingsNavItem = navItems.find((item) => item.id === 'configuracoes')!;
+const usuariosNavItem = navItems.find((item) => item.id === 'usuarios')!;
 const productsNavItem = navItems.find((item) => item.id === 'produtos')!;
 const stockNavItem = navItems.find((item) => item.id === 'estoque')!;
 const purchasingNavItem = navItems.find((item) => item.id === 'compras')!;
+const suppliersNavItem = navItems.find((item) => item.id === 'fornecedores')!;
 const customersNavItem = navItems.find((item) => item.id === 'clientes')!;
 const crmNavItem = navItems.find((item) => item.id === 'crm')!;
 const pdvNavItem = navItems.find((item) => item.id === 'pdv')!;
@@ -123,6 +127,12 @@ export const router = createBrowserRouter([
         path: settingsNavItem.path,
         element: (
           <PermissionGuard permissions={settingsNavItem.permissions}>{withSuspense(SettingsPage)}</PermissionGuard>
+        ),
+      },
+      {
+        path: usuariosNavItem.path,
+        element: (
+          <PermissionGuard permissions={usuariosNavItem.permissions}>{withSuspense(UsersPage)}</PermissionGuard>
         ),
       },
       {
@@ -213,6 +223,12 @@ export const router = createBrowserRouter([
         path: `${purchasingNavItem.path}/recebimentos`,
         element: (
           <PermissionGuard permissions={{ module: 'purchases', required: ['view'] }}>{withSuspense(GoodsReceiptsPage)}</PermissionGuard>
+        ),
+      },
+      {
+        path: suppliersNavItem.path,
+        element: (
+          <PermissionGuard permissions={{ module: 'purchases', required: ['view'] }}>{withSuspense(SuppliersListPage)}</PermissionGuard>
         ),
       },
       {

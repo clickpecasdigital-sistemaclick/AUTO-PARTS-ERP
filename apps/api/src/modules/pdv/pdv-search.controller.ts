@@ -21,6 +21,13 @@ export class PdvSearchController {
     return this.service.searchProducts(user.tenantId, term, limit ? Number(limit) : undefined);
   }
 
+  @Get('sales')
+  @RequirePermission('sales', 'view')
+  @ApiOperation({ summary: 'Busca vendas concluídas por código ou cliente, com itens (para devoluções)' })
+  searchSales(@CurrentUser() user: AuthenticatedRequestUser, @Query('term') term: string, @Query('limit') limit?: number) {
+    return this.service.searchSales(user.tenantId, term, limit ? Number(limit) : undefined);
+  }
+
   @Get('by-plate')
   @RequirePermission('sales', 'view')
   @ApiOperation({ summary: 'Resolve o veículo pela placa e retorna as peças compatíveis' })

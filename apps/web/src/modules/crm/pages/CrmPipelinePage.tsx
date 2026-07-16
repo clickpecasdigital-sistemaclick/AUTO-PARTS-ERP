@@ -27,6 +27,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/usePermissions';
 import { formatCurrencyBRL } from '@/utils/formatters';
 import { useCreateOpportunity, useMoveOpportunity, usePipelineBoard } from '../hooks/useCrm';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomers } from '@/modules/mdm/hooks/useMdm';
 
 interface OpportunityFormValues {
   title: string;
@@ -50,6 +52,7 @@ export default function CrmPipelinePage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const form = useForm<OpportunityFormValues>();
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
 
   async function onSubmit(values: OpportunityFormValues) {
     await createOpportunity.mutateAsync(values as unknown as Record<string, unknown>);
@@ -161,8 +164,13 @@ export default function CrmPipelinePage() {
             <FormField label="Valor estimado">
               <MoneyInput valueInCents={Math.round((form.watch('value') ?? 0) * 100)} onValueChange={(cents) => form.setValue('value', cents / 100)} />
             </FormField>
-            <FormField label="Cliente (ID)" hint="Opcional — deixe vazio para oportunidade sem cliente vinculado ainda">
-              <Input {...form.register('customerId')} placeholder="uuid do cliente" />
+            <FormField label="Cliente" hint="Opcional — deixe vazio para oportunidade sem cliente vinculado ainda">
+              <Autocomplete
+                value={form.watch('customerId') ?? null}
+                onChange={(v) => form.setValue('customerId', v ?? undefined)}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Buscar cliente (opcional)..."
+              />
             </FormField>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>

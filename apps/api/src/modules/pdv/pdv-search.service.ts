@@ -15,6 +15,32 @@ import { PrismaService } from '@/database/prisma/prisma.service';
 export class PdvSearchService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async searchSales(tenantId: string, term: string, limit = 20) {
+    const cleanTerm = term.trim();
+    if (!cleanTerm) return [];
+
+    return this.prisma.sale.findMany({
+      where: {
+        tenantId,
+        status: { in: ['paid', 'partially_paid'] },
+        OR: [
+          { code: { contains: cleanTerm, mode: 'insensitive' } },
+          { customer: { name: { contains: cleanTerm, mode: 'insensitive' } } },
+        ],
+      },
+      select: {
+        id: true,
+        code: true,
+        totalAmount: true,
+        issuedAt: true,
+        customer: { select: { name: true } },
+        items: { select: { id: true, productId: true, quantity: true, unitPrice: true, product: { select: { internalCode: true, shortDescription: true } } } },
+      },
+      take: limit,
+      orderBy: { issuedAt: 'desc' },
+    });
+  }
+
   async searchProducts(tenantId: string, term: string, limit = 20) {
     const cleanTerm = term.trim();
     if (!cleanTerm) return [];

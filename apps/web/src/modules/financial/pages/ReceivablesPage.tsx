@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/dialog';
 import type { ColumnDef } from '@tanstack/react-table';
 import { usePagination } from '@/hooks/usePagination';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomers } from '@/modules/mdm/hooks/useMdm';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL, formatDate } from '@/utils/formatters';
@@ -63,6 +65,7 @@ export default function ReceivablesPage() {
   const [newDueDate, setNewDueDate] = useState('');
 
   const form = useForm<CreateFormValues>();
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
 
   async function onCreate(values: CreateFormValues) {
     if (!activeCompanyId) return;
@@ -169,8 +172,13 @@ export default function ReceivablesPage() {
             <DialogTitle>Novo título a receber</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onCreate)} className="space-y-4">
-            <FormField label="Cliente (ID)">
-              <Input {...form.register('customerId')} placeholder="uuid do cliente (opcional)" />
+            <FormField label="Cliente">
+              <Autocomplete
+                value={form.watch('customerId') ?? null}
+                onChange={(v) => form.setValue('customerId', v ?? undefined)}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Buscar cliente (opcional)..."
+              />
             </FormField>
             <FormField label="Número do documento">
               <Input {...form.register('documentNumber')} />

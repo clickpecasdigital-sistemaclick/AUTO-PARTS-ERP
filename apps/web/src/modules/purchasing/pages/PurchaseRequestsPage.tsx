@@ -27,6 +27,8 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatDate } from '@/utils/formatters';
 import { useCreatePurchaseRequest, usePurchaseRequests, useSubmitPurchaseRequest } from '../hooks/usePurchasing';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import { priorityLabels, requestStatusLabels, type PurchasePriority, type PurchaseRequestStatus } from '../types/purchasing.types';
 
 const statusVariant: Record<PurchaseRequestStatus, 'secondary' | 'warning' | 'success' | 'destructive' | 'default'> = {
@@ -57,6 +59,7 @@ export default function PurchaseRequestsPage() {
   const [isOpen, setIsOpen] = useState(false);
 
   const form = useForm<RequestFormValues>({ defaultValues: { priority: 'normal', isUrgent: false } });
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
 
   async function onSubmit(values: RequestFormValues) {
     if (!activeBranchId) {
@@ -145,8 +148,13 @@ export default function PurchaseRequestsPage() {
               <input type="checkbox" {...form.register('isUrgent')} className="size-4 rounded border-input" />
               Marcar como urgente
             </label>
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} placeholder="uuid do produto" />
+            <FormField label="Produto" required>
+              <Autocomplete
+                value={form.watch('productId') ?? null}
+                onChange={(v) => form.setValue('productId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Quantidade" required>
               <Input type="number" step="0.0001" {...form.register('quantity', { required: true, valueAsNumber: true })} className="font-numeric" />

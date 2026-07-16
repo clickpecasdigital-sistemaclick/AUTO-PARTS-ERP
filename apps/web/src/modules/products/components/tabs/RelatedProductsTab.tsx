@@ -23,7 +23,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { useAddProductCrossReference, useRemoveProductCrossReference } from '../../hooks/useProducts';
+import { useAddProductCrossReference, useProducts, useRemoveProductCrossReference } from '../../hooks/useProducts';
+import { Autocomplete } from '@/components/ui/autocomplete';
 import { productCrossReferenceSchema, type ProductCrossReferenceFormValues } from '../../schemas/product.schema';
 import type { Product, ProductRelationType } from '../../types/product.types';
 
@@ -61,6 +62,7 @@ export function RelatedProductsTab({ product }: RelatedProductsTabProps) {
     resolver: zodResolver(productCrossReferenceSchema),
     defaultValues: { type: 'similar' },
   });
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
 
   async function onSubmit(values: ProductCrossReferenceFormValues) {
     await addCrossReference.mutateAsync(values);
@@ -108,8 +110,13 @@ export function RelatedProductsTab({ product }: RelatedProductsTabProps) {
             <DialogTitle>Relacionar produto</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="ID do produto relacionado" required error={form.formState.errors.relatedProductId?.message} hint="Cole o ID do produto (visível na URL da ficha dele)">
-              <Input {...form.register('relatedProductId')} placeholder="uuid do produto" />
+            <FormField label="Produto relacionado" required error={form.formState.errors.relatedProductId?.message}>
+              <Autocomplete
+                value={form.watch('relatedProductId') ?? null}
+                onChange={(v) => form.setValue('relatedProductId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).filter((p) => p.id !== product.id).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Tipo de relação" required>
               <Select onValueChange={(v) => form.setValue('type', v as ProductRelationType)} value={form.watch('type')}>

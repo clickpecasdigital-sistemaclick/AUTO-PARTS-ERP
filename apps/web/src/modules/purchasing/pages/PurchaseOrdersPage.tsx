@@ -27,6 +27,9 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL, formatDate } from '@/utils/formatters';
 import { env } from '@/config/env';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useSupplierOptions } from '@/modules/products/hooks/useCatalogs';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import {
   useApproveOrder,
   useCancelOrder,
@@ -68,6 +71,8 @@ export default function PurchaseOrdersPage() {
   const [isOpen, setIsOpen] = useState(false);
 
   const form = useForm<OrderFormValues>();
+  const { data: supplierOptions } = useSupplierOptions();
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
 
   async function onSubmit(values: OrderFormValues) {
     if (!activeBranchId) return;
@@ -197,11 +202,21 @@ export default function PurchaseOrdersPage() {
             <DialogTitle>Novo pedido de compra</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Fornecedor (ID)" required>
-              <Input {...form.register('supplierId', { required: true })} placeholder="uuid do fornecedor" />
+            <FormField label="Fornecedor" required>
+              <Autocomplete
+                value={form.watch('supplierId') ?? null}
+                onChange={(v) => form.setValue('supplierId', v ?? '', { shouldValidate: true })}
+                options={(supplierOptions ?? []).map((s) => ({ value: s.id, label: s.name ?? s.code ?? s.id }))}
+                placeholder="Buscar fornecedor..."
+              />
             </FormField>
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} placeholder="uuid do produto" />
+            <FormField label="Produto" required>
+              <Autocomplete
+                value={form.watch('productId') ?? null}
+                onChange={(v) => form.setValue('productId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Quantidade" required>
               <Input type="number" step="0.0001" {...form.register('quantity', { required: true, valueAsNumber: true })} className="font-numeric" />

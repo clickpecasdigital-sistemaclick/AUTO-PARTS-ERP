@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { useCreateServiceOrder } from '../hooks/useWorkshop';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomer, useCustomers, useMechanics } from '@/modules/mdm/hooks/useMdm';
 import { priorityLabels, type ServiceOrderPriority } from '../types/workshop.types';
 
 interface CreateFormValues {
@@ -32,6 +34,10 @@ export default function ServiceOrderCreatePage() {
   const activeBranchId = useWorkspaceStore((s) => s.activeBranchId);
   const createOrder = useCreateServiceOrder();
   const form = useForm<CreateFormValues>({ defaultValues: { priority: 'normal' } });
+  const selectedCustomerId = form.watch('customerId');
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
+  const { data: selectedCustomer } = useCustomer(selectedCustomerId || undefined);
+  const { data: mechanicOptions } = useMechanics();
 
   async function onSubmit(values: CreateFormValues) {
     if (!activeBranchId) return;
@@ -46,14 +52,31 @@ export default function ServiceOrderCreatePage() {
       <Card>
         <CardContent className="p-6">
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Cliente (ID)" required>
-              <Input {...form.register('customerId', { required: true })} placeholder="uuid do cliente" />
+            <FormField label="Cliente" required>
+              <Autocomplete
+                value={selectedCustomerId ?? null}
+                onChange={(v) => { form.setValue('customerId', v ?? '', { shouldValidate: true }); form.setValue('vehicleId', ''); }}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Buscar cliente..."
+              />
             </FormField>
-            <FormField label="Veículo (ID)" required>
-              <Input {...form.register('vehicleId', { required: true })} placeholder="uuid do veículo" />
+            <FormField label="Veículo" required>
+              <Autocomplete
+                value={form.watch('vehicleId') ?? null}
+                onChange={(v) => form.setValue('vehicleId', v ?? '', { shouldValidate: true })}
+                options={(selectedCustomer?.vehicles ?? []).map((v) => ({ value: v.id, label: v.plate ? `Placa ${v.plate}` : `Veículo (${v.id.slice(0, 8)})` }))}
+                placeholder={selectedCustomerId ? 'Selecione o veículo...' : 'Escolha um cliente primeiro'}
+                disabled={!selectedCustomerId}
+                emptyMessage="Esse cliente ainda não tem veículo cadastrado — adicione um no perfil do cliente (Customer 360)."
+              />
             </FormField>
-            <FormField label="Mecânico responsável (ID)">
-              <Input {...form.register('mechanicId')} placeholder="uuid do mecânico (opcional)" />
+            <FormField label="Mecânico responsável">
+              <Autocomplete
+                value={form.watch('mechanicId') ?? null}
+                onChange={(v) => form.setValue('mechanicId', v ?? undefined)}
+                options={(mechanicOptions ?? []).map((m) => ({ value: m.id, label: m.employee?.name ?? m.id }))}
+                placeholder="Buscar mecânico (opcional)..."
+              />
             </FormField>
             <FormField label="Prioridade" required>
               <Select onValueChange={(v) => form.setValue('priority', v as ServiceOrderPriority)} value={form.watch('priority')}>

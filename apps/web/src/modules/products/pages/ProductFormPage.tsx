@@ -15,6 +15,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/tabs';
 import { usePermissions } from '@/hooks/usePermissions';
+import { toast } from '@/utils/toast';
 import { useCreateProduct, useProduct, useUpdateProduct } from '../hooks/useProducts';
 import { productFormSchema, type ProductFormValues } from '../schemas/product.schema';
 import { GeneralTab } from '../components/tabs/GeneralTab';
@@ -66,6 +67,7 @@ export default function ProductFormPage() {
     if (product) {
       form.reset({
         ...product,
+        origin: product.origin ?? 'nacional',
         ipiRate: Number(product.ipiRate),
         icmsRate: Number(product.icmsRate),
         pisRate: Number(product.pisRate),
@@ -95,6 +97,21 @@ export default function ProductFormPage() {
     }
   }
 
+  const FIELD_TO_TAB: Record<string, string> = {
+    shortDescription: 'Dados Gerais', unitId: 'Dados Gerais', weightKg: 'Dados Gerais', heightCm: 'Dados Gerais', widthCm: 'Dados Gerais', lengthCm: 'Dados Gerais', warrantyDays: 'Dados Gerais',
+    origin: 'Tributação', ipiRate: 'Tributação', icmsRate: 'Tributação', pisRate: 'Tributação', cofinsRate: 'Tributação',
+    minStock: 'Estoque', maxStock: 'Estoque',
+    costPrice: 'Preços', salePrice: 'Preços',
+  };
+
+  function onInvalid(errors: Record<string, unknown>) {
+    const tabs = [...new Set(Object.keys(errors).map((field) => FIELD_TO_TAB[field] ?? 'Dados Gerais'))];
+    toast.error(
+      'Não foi possível salvar — falta preencher algo',
+      tabs.length ? `Verifique a aba: ${tabs.join(', ')}` : undefined,
+    );
+  }
+
   if (!isNew && isLoading) return <LoadingScreen message="Carregando produto..." fullScreen={false} />;
   if (!isNew && isError) return <ErrorState onRetry={() => refetch()} />;
 
@@ -102,7 +119,7 @@ export default function ProductFormPage() {
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)}>
         <PageHeader
           title={isNew ? 'Novo produto' : product?.shortDescription ?? ''}
           description={isNew ? 'Cadastre um novo produto no catálogo comercial.' : `Código interno: ${product?.internalCode}`}

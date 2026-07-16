@@ -19,6 +19,9 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { useWorkspaceStore } from '@/stores/workspace.store';
 import { formatCurrencyBRL, formatDate } from '@/utils/formatters';
 import { useApproveQuote, useConvertQuoteToOrder, useCreateQuote, usePdvQuotes, useSendQuote } from '../hooks/usePdv';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import { useCustomers } from '@/modules/mdm/hooks/useMdm';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import { quoteStatusLabels, type QuoteStatus } from '../types/pdv.types';
 
 const statusVariant: Record<QuoteStatus, 'secondary' | 'warning' | 'success' | 'destructive' | 'default'> = {
@@ -52,6 +55,8 @@ export default function PdvQuotesPage() {
   const [emailDraft, setEmailDraft] = useState('');
 
   const form = useForm<QuoteFormValues>();
+  const { data: customerOptions } = useCustomers({ page: 1, perPage: 50 });
+  const { data: productOptions } = useProducts({ page: 1, perPage: 50 });
 
   async function onSubmit(values: QuoteFormValues) {
     if (!activeBranchId) return;
@@ -123,14 +128,24 @@ export default function PdvQuotesPage() {
             <DialogTitle>Novo orçamento</DialogTitle>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField label="Cliente (ID)" required>
-              <Input {...form.register('customerId', { required: true })} placeholder="uuid do cliente" />
+            <FormField label="Cliente" required>
+              <Autocomplete
+                value={form.watch('customerId') ?? null}
+                onChange={(v) => form.setValue('customerId', v ?? '', { shouldValidate: true })}
+                options={(customerOptions?.data ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Buscar cliente..."
+              />
             </FormField>
             <FormField label="Válido até">
               <Input type="date" {...form.register('validUntil')} />
             </FormField>
-            <FormField label="Produto (ID)" required>
-              <Input {...form.register('productId', { required: true })} placeholder="uuid do produto" />
+            <FormField label="Produto" required>
+              <Autocomplete
+                value={form.watch('productId') ?? null}
+                onChange={(v) => form.setValue('productId', v ?? '', { shouldValidate: true })}
+                options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                placeholder="Buscar produto..."
+              />
             </FormField>
             <FormField label="Quantidade" required>
               <Input type="number" step="0.0001" {...form.register('quantity', { required: true, valueAsNumber: true })} className="font-numeric" />
