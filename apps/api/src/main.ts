@@ -37,8 +37,8 @@ async function bootstrap() {
   // novos módulos de negócio registram seus controllers/DTOs com decorators
   // @nestjs/swagger; nenhuma configuração adicional é necessária por módulo.
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('AutoCore ERP API')
-    .setDescription('API REST do AutoCore ERP — Gestão completa para Autopeças')
+    .setTitle('Auto Parts ERP API')
+    .setDescription('API REST do Auto Parts ERP — Gestão completa para Autopeças')
     .setVersion('0.1.0')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .build();
@@ -48,7 +48,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3333;
   await app.listen(port);
   // eslint-disable-next-line no-console
-  console.log(`🚀 AutoCore ERP API rodando em http://localhost:${port}/api/v1`);
+  console.log(`🚀 Auto Parts ERP API rodando em http://localhost:${port}/api/v1`);
   // eslint-disable-next-line no-console
   console.log(`📚 Documentação Swagger em http://localhost:${port}/api/docs`);
 }

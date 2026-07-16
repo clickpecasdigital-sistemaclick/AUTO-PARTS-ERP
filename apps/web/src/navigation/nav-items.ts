@@ -1,6 +1,7 @@
 import {
   Award,
   Banknote,
+  Car,
   CreditCard,
   ShieldCheck,
   Bell,
@@ -120,6 +121,16 @@ export const navItems: NavItem[] = [
     icon: Package,
     category: 'operacional',
     permissions: { module: 'products', required: ['view'] },
+    children: [
+      {
+        id: 'produtos-catalogo-aplicacoes',
+        label: 'Catálogo de Aplicações',
+        path: '/produtos/catalogo-aplicacoes',
+        icon: Car,
+        category: 'operacional',
+        permissions: { module: 'products', required: ['view'] },
+      },
+    ],
   },
   {
     id: 'estoque',

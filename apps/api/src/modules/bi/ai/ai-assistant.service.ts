@@ -5,7 +5,7 @@ import { KpiService } from '../kpi/kpi.service';
 import type { RequestContext } from '@/common/types/request-context';
 
 /**
- * Assistente IA do AutoCore ERP — integração com Anthropic API.
+ * Assistente IA do Auto Parts ERP — integração com Anthropic API.
  * Arquitetura desacoplada (briefing): trocar de claude-sonnet-4-6 para
  * qualquer outro modelo é uma configuração, não uma reescrita. A resposta
  * é gerada com contexto dos KPIs reais do tenant (buscados antes de
@@ -55,7 +55,7 @@ export class AiAssistantService {
   }
 
   private buildSystemPrompt(context: Record<string, unknown>, range: { from: Date; to: Date }): string {
-    return `Voce e o Assistente IA do AutoCore ERP, sistema para oficinas mecanicas e distribuidoras de autopecas. Responda em portugues brasileiro, de forma direta e objetiva. Use os dados reais do contexto. Formate valores em R$ com 2 casas decimais. Se nao puder responder com os dados disponiveis, diga claramente.
+    return `Voce e o Assistente IA do Auto Parts ERP, sistema para oficinas mecanicas e distribuidoras de autopecas. Responda em portugues brasileiro, de forma direta e objetiva. Use os dados reais do contexto. Formate valores em R$ com 2 casas decimais. Se nao puder responder com os dados disponiveis, diga claramente.
 
 Periodo dos dados: ${range.from.toLocaleDateString('pt-BR')} a ${range.to.toLocaleDateString('pt-BR')}
 

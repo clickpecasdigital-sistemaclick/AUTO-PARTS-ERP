@@ -16,7 +16,7 @@ export function useRouteMiddleware() {
 
   useEffect(() => {
     const navItem = findNavItemByPath(location.pathname);
-    document.title = navItem ? `${navItem.label} · AutoCore ERP` : 'AutoCore ERP';
+    document.title = navItem ? `${navItem.label} · Auto Parts ERP` : 'Auto Parts ERP';
     if (navItem) registerVisit(navItem.id);
   }, [location.pathname, registerVisit]);
 }

@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Save, ShieldCheck } from 'lucide-react';
+import { Save, ShieldCheck, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useWorkspaceStore } from '@/stores/workspace.store';
-import { useFiscalConfig, useUpsertFiscalConfig, useFiscalCertificates, useExpiryAlerts } from '../services/fiscal.service';
+import { useFiscalConfig, useUpsertFiscalConfig, useFiscalCertificates, useExpiryAlerts, useUploadCertificate } from '../services/fiscal.service';
 import { formatDate } from '@/utils/formatters';
 
 const TAX_REGIMES = [
@@ -42,10 +42,25 @@ interface ConfigFormValues {
 /** Painel de Configuração Fiscal (briefing: empresa, regime tributário, CRT, ambiente, séries, CSC, UF, município, CFOP padrão, natureza da operação, tributações, observações). */
 export default function FiscalConfigPage() {
   const activeBranchId = useWorkspaceStore((s) => s.activeBranchId);
+  const activeCompanyId = useWorkspaceStore((s) => s.activeCompanyId);
   const { data: config } = useFiscalConfig(activeBranchId ?? undefined);
   const upsert = useUpsertFiscalConfig(activeBranchId ?? '');
   const { data: certificates } = useFiscalCertificates();
   const { data: expiryAlerts } = useExpiryAlerts();
+  const uploadCertificate = useUploadCertificate();
+  const [certAlias, setCertAlias] = useState('');
+  const [certPassword, setCertPassword] = useState('');
+  const [certFile, setCertFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleUploadCertificate() {
+    if (!activeCompanyId || !certFile || !certAlias || !certPassword) return;
+    await uploadCertificate.mutateAsync({ companyId: activeCompanyId, alias: certAlias, password: certPassword, file: certFile });
+    setCertAlias('');
+    setCertPassword('');
+    setCertFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
   const form = useForm<ConfigFormValues>({
     defaultValues: { taxRegime: 'simples_nacional', crt: 1, environment: 'homologation', uf: 'RS', ibgeCode: '', defaultCfopInState: '1102', defaultCfopOutState: '5102', defaultNatureOfOperation: 'Venda de Mercadoria', fiscalObservations: '' },
@@ -178,8 +193,39 @@ export default function FiscalConfigPage() {
               </div>
             ))
           )}
+
+          <div className="mt-4 space-y-3 rounded-md border border-dashed border-border p-4">
+            <p className="text-sm font-medium">Enviar novo certificado A1 (.pfx)</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Nome/apelido" required>
+                <Input value={certAlias} onChange={(e) => setCertAlias(e.target.value)} placeholder="Ex: Certificado Matriz 2026" />
+              </FormField>
+              <FormField label="Senha do certificado" required>
+                <Input type="password" value={certPassword} onChange={(e) => setCertPassword(e.target.value)} />
+              </FormField>
+            </div>
+            <FormField label="Arquivo .pfx" required>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pfx,.p12"
+                onChange={(e) => setCertFile(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium"
+              />
+            </FormField>
+            <Button
+              onClick={handleUploadCertificate}
+              isLoading={uploadCertificate.isPending}
+              disabled={!activeCompanyId || !certFile || !certAlias || !certPassword}
+            >
+              <Upload /> Enviar certificado
+            </Button>
+            {!activeCompanyId && <p className="text-xs text-destructive">Selecione uma empresa ativa antes de enviar o certificado.</p>}
+          </div>
+
           <p className="mt-2 text-xs text-muted-foreground">
-            A senha do certificado nunca é armazenada — é usada apenas na camada de aplicação durante a assinatura.
+            A senha é enviada de forma segura (conexão criptografada) e guardada criptografada no banco — nunca em
+            texto puro. Sem ela, o sistema não teria como assinar a nota fiscal em seu nome.
           </p>
         </CardContent>
       </Card>

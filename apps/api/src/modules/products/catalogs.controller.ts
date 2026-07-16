@@ -73,4 +73,10 @@ export class CatalogsController {
     if (search) return this.catalogs.searchVehicleVersions(search);
     return modelId ? this.catalogs.vehicleVersions(modelId) : [];
   }
+
+  @Get('vehicle-applications')
+  @ApiOperation({ summary: 'Lista peças compatíveis com uma versão de veículo (Catálogo de Aplicações)' })
+  productsByVehicleVersion(@CurrentUser() user: AuthenticatedRequestUser, @Query('vehicleVersionId') vehicleVersionId: string) {
+    return this.catalogs.productsByVehicleVersion(user.tenantId, vehicleVersionId);
+  }
 }

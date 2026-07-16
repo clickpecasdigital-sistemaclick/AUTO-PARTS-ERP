@@ -15,7 +15,7 @@ export const env = {
   supabaseUrl: getEnvVar('VITE_SUPABASE_URL'),
   supabaseAnonKey: getEnvVar('VITE_SUPABASE_ANON_KEY'),
   apiUrl: getEnvVar('VITE_API_URL'),
-  appName: getEnvVar('VITE_APP_NAME', false) || 'AutoCore ERP',
+  appName: getEnvVar('VITE_APP_NAME', false) || 'Auto Parts ERP',
   appEnv: (getEnvVar('VITE_APP_ENV', false) || 'development') as
     | 'development'
     | 'staging'

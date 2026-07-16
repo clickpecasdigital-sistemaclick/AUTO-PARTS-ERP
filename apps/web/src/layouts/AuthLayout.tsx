@@ -14,6 +14,7 @@ export function AuthLayout() {
           <p className="text-sm text-muted-foreground">Gestão completa para Autopeças</p>
         </div>
         <Outlet />
+        <p className="text-center text-xs text-muted-foreground">Desenvolvido por Elismar</p>
       </div>
     </div>
   );

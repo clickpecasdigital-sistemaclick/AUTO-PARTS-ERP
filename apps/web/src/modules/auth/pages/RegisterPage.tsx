@@ -31,7 +31,7 @@ export default function RegisterPage() {
     <Card>
       <CardHeader>
         <CardTitle>Criar conta</CardTitle>
-        <CardDescription>Comece a usar o AutoCore ERP na sua autopeças.</CardDescription>
+        <CardDescription>Comece a usar o Auto Parts ERP na sua autopeças.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>

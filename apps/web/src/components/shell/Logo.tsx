@@ -3,7 +3,7 @@ import { cn } from '@/utils/cn';
 
 interface LogoProps {
   className?: string;
-  /** Esconde o texto "AutoCore ERP", mantendo só a marca — usado no Navbar quando a Sidebar está colapsada. */
+  /** Esconde o texto "Auto Parts ERP", mantendo só a marca — usado no Navbar quando a Sidebar está colapsada. */
   iconOnly?: boolean;
   size?: 'default' | 'lg';
 }
@@ -17,16 +17,13 @@ interface LogoProps {
 export function Logo({ className, iconOnly = false, size = 'default' }: LogoProps) {
   return (
     <Link to="/dashboard" className={cn('flex items-center gap-2', className)}>
-      <span
-        className={cn(
-          'flex shrink-0 items-center justify-center rounded-md bg-gradient-primary font-display font-bold text-white',
-          size === 'lg' ? 'size-10 text-base' : 'size-7 text-xs',
-        )}
-      >
-        AC
-      </span>
+      <img
+        src="/logo.png"
+        alt="Auto Parts ERP"
+        className={cn('shrink-0 rounded-md object-contain', size === 'lg' ? 'size-10' : 'size-7')}
+      />
       {!iconOnly && (
-        <span className={cn('font-display font-bold tracking-tight', size === 'lg' ? 'text-2xl' : 'text-base')}>AutoCore ERP</span>
+        <span className={cn('font-display font-bold tracking-tight', size === 'lg' ? 'text-2xl' : 'text-base')}>Auto Parts ERP</span>
       )}
     </Link>
   );

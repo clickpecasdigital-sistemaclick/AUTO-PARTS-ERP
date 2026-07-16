@@ -1,7 +1,7 @@
 version: '3.9'
 
 # =============================================================================
-# AutoCore ERP — Docker Compose Enterprise (Sprint 14)
+# Auto Parts ERP — Docker Compose Enterprise (Sprint 14)
 #
 # Serviços:
 #   api      — NestJS API (port 3000)

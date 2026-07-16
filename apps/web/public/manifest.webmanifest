@@ -1,18 +1,20 @@
 {
-  "name": "AutoCore ERP",
-  "short_name": "AutoCore",
+  "name": "Auto Parts ERP",
+  "short_name": "AutoParts",
   "description": "ERP SaaS Premium para Autopeças — gestão completa de estoque, vendas, oficina, financeiro e fiscal.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#F4F6F8",
-  "theme_color": "#F2730F",
+  "background_color": "#11181C",
+  "theme_color": "#11181C",
   "lang": "pt-BR",
   "dir": "ltr",
   "categories": ["business", "productivity"],
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icons/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

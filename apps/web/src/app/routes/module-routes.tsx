@@ -12,6 +12,7 @@ const IMPLEMENTED_NAV_IDS = [
   'dashboard',
   'configuracoes',
   'produtos',
+  'produtos-catalogo-aplicacoes',
   'estoque',
   'estoque-movimentacoes',
   'estoque-transferencias',
@@ -64,7 +65,7 @@ export const moduleRoutes: RouteObject[] = flatNavItems
     path: item.path,
     element: (
       <PermissionGuard permissions={item.permissions}>
-        <ModulePlaceholderPage title={item.label} description={`Painel de ${item.label.toLowerCase()} do AutoCore ERP.`} icon={item.icon} />
+        <ModulePlaceholderPage title={item.label} description={`Painel de ${item.label.toLowerCase()} do Auto Parts ERP.`} icon={item.icon} />
       </PermissionGuard>
     ),
   }));

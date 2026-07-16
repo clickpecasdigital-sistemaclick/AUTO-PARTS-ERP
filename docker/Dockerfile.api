@@ -1,5 +1,5 @@
 # =============================================================================
-# Dockerfile — AutoCore ERP API (NestJS)
+# Dockerfile — Auto Parts ERP API (NestJS)
 # Multi-stage: build → produção
 # Target: Node.js 20 LTS, Alpine (imagem mínima)
 # =============================================================================

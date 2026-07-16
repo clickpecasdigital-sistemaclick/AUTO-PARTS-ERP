@@ -61,11 +61,11 @@ ${branding.customCss ?? ''}
     return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family: sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
 <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden;">
   <div style="background: ${branding.primaryColor ?? '#0f172a'}; padding: 24px; text-align: center;">
-    ${branding.logoUrl ? `<img src="${branding.logoUrl}" alt="${branding.appName ?? 'ERP'}" style="height: 40px;">` : `<h1 style="color: white; margin: 0;">${branding.appName ?? 'AutoCore ERP'}</h1>`}
+    ${branding.logoUrl ? `<img src="${branding.logoUrl}" alt="${branding.appName ?? 'ERP'}" style="height: 40px;">` : `<h1 style="color: white; margin: 0;">${branding.appName ?? 'Auto Parts ERP'}</h1>`}
   </div>
   <div style="padding: 32px;">${content}</div>
   <div style="background: #f9fafb; padding: 16px; text-align: center; font-size: 12px; color: #6b7280;">
-    ${branding.appName ?? 'AutoCore ERP'} ${branding.supportEmail ? `• <a href="mailto:${branding.supportEmail}">${branding.supportEmail}</a>` : ''}
+    ${branding.appName ?? 'Auto Parts ERP'} ${branding.supportEmail ? `• <a href="mailto:${branding.supportEmail}">${branding.supportEmail}</a>` : ''}
   </div>
 </div></body></html>`;
   }
@@ -109,7 +109,7 @@ export class WebhookEngine {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-AutoCore-Signature': `sha256=${signature}`, 'X-AutoCore-Event': event },
+        headers: { 'Content-Type': 'application/json', 'X-AutoParts-Signature': `sha256=${signature}`, 'X-AutoParts-Event': event },
         body,
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -159,7 +159,7 @@ export class WebhookEngine {
     const ep = await this.prisma.webhookEndpoint.findFirst({ where: { id: endpointId, tenantId: ctx.tenantId } });
     if (!ep) throw new Error('Endpoint não encontrado');
 
-    await this.dispatch(ctx.tenantId, 'ping', { message: 'AutoCore ERP webhook ping', timestamp: new Date().toISOString() });
+    await this.dispatch(ctx.tenantId, 'ping', { message: 'Auto Parts ERP webhook ping', timestamp: new Date().toISOString() });
     await this.prisma.webhookEndpoint.update({ where: { id: endpointId }, data: { lastPingAt: new Date() } });
 
     return { message: 'Ping enviado' };

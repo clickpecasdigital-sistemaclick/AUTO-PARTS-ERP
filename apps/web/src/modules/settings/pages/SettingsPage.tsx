@@ -1,6 +1,12 @@
+import { useState } from 'react';
+import { ExternalLink, Link2, Link2Off } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { FormField } from '@/components/ui/form-field';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -17,6 +23,7 @@ import {
   type Language,
   type TimeFormat,
 } from '@/stores/settings.store';
+import { useConnectMercadoLivre, useDisconnectMercadoLivre, useMercadoLivreStatus } from '../services/mercado-livre.service';
 
 /**
  * Configurações Globais do Shell: Tema, Idioma, Moeda, Formato de Data/Hora
@@ -29,6 +36,12 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { language, currency, dateFormat, timeFormat, setLanguage, setCurrency, setDateFormat, setTimeFormat } = useSettingsStore();
   const { companies, branches, activeCompanyId, activeBranchId } = useWorkspaceStore();
+  const { data: mlStatus } = useMercadoLivreStatus();
+  const connectMl = useConnectMercadoLivre();
+  const disconnectMl = useDisconnectMercadoLivre();
+  const [mlClientId, setMlClientId] = useState('');
+  const [mlClientSecret, setMlClientSecret] = useState('');
+  const redirectUri = `${import.meta.env.VITE_API_URL ?? ''}/integrations/mercado-livre/callback`;
 
   const activeCompany = companies.find((c) => c.id === activeCompanyId);
   const activeBranch = branches.find((b) => b.id === activeBranchId);
@@ -135,6 +148,53 @@ export default function SettingsPage() {
             <Label>Filial ativa</Label>
             <p className="text-sm text-muted-foreground">{activeBranch ? activeBranch.name : 'Nenhuma filial configurada ainda.'}</p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Integração — Mercado Livre</CardTitle>
+          <CardDescription>
+            Conecte sua conta de vendedor do Mercado Livre. Crie um app em{' '}
+            <a href="https://developers.mercadolivre.com.br" target="_blank" rel="noreferrer" className="text-primary underline">
+              developers.mercadolivre.com.br <ExternalLink className="inline size-3" />
+            </a>{' '}
+            e cole a URL de redirecionamento abaixo lá, exatamente como está.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {mlStatus?.connected ? (
+            <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <div className="flex items-center gap-2">
+                <Badge variant="success">Conectado</Badge>
+                <span className="text-sm">{mlStatus.mlNickname}</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => disconnectMl.mutate()} isLoading={disconnectMl.isPending}>
+                <Link2Off /> Desconectar
+              </Button>
+            </div>
+          ) : (
+            <>
+              <FormField label="URL de redirecionamento (cole no app do Mercado Livre)">
+                <Input value={redirectUri} readOnly onFocus={(e) => e.target.select()} className="font-numeric text-xs" />
+              </FormField>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormField label="Client ID (App ID)" required>
+                  <Input value={mlClientId} onChange={(e) => setMlClientId(e.target.value)} />
+                </FormField>
+                <FormField label="Client Secret" required>
+                  <Input type="password" value={mlClientSecret} onChange={(e) => setMlClientSecret(e.target.value)} />
+                </FormField>
+              </div>
+              <Button
+                onClick={() => connectMl.mutate({ clientId: mlClientId, clientSecret: mlClientSecret, redirectUri })}
+                isLoading={connectMl.isPending}
+                disabled={!mlClientId || !mlClientSecret}
+              >
+                <Link2 /> Conectar ao Mercado Livre
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -43,7 +43,7 @@ export class NfeXmlBuilderService {
         <indFinal>${data.indFinal}</indFinal>
         <indPres>${data.indPres}</indPres>
         <procEmi>3</procEmi>
-        <verProc>AutoCore ERP 12.0</verProc>
+        <verProc>Auto Parts ERP 12.0</verProc>
       </ide>
       ${this.buildEmitenteElement(data.emitente)}
       ${this.buildDestinatarioElement(data.destinatario)}
@@ -120,7 +120,7 @@ export class NfeXmlBuilderService {
         <indFinal>1</indFinal>
         <indPres>1</indPres>
         <procEmi>3</procEmi>
-        <verProc>AutoCore ERP 12.0</verProc>
+        <verProc>Auto Parts ERP 12.0</verProc>
       </ide>
       ${this.buildEmitenteElement(data.emitente)}
       ${data.cpfCnpjConsumidor ? `<dest><CPF>${data.cpfCnpjConsumidor}</CPF></dest>` : ''}

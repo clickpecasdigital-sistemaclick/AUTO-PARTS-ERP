@@ -132,7 +132,7 @@ export class CopilotService {
   }
 
   private async callAI(command: string, context: Record<string, unknown>, screen?: string): Promise<{ answer: string }> {
-    const systemPrompt = `Voce e o Copilot do AutoCore ERP, assistente de IA integrado ao sistema de gestao para oficinas mecanicas e distribuidoras de autopecas. Responda em portugues brasileiro de forma direta e objetiva. Tela atual: ${screen ?? 'desconhecida'}. Use os dados do contexto. Para navegacao ou acoes, confirme que a acao sera executada.
+    const systemPrompt = `Voce e o Copilot do Auto Parts ERP, assistente de IA integrado ao sistema de gestao para oficinas mecanicas e distribuidoras de autopecas. Responda em portugues brasileiro de forma direta e objetiva. Tela atual: ${screen ?? 'desconhecida'}. Use os dados do contexto. Para navegacao ou acoes, confirme que a acao sera executada.
 
 Contexto atual: ${JSON.stringify(context)}`;
 

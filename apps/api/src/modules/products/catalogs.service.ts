@@ -84,4 +84,18 @@ export class CatalogsService {
       take: 20,
     });
   }
+
+  /** Catálogo de Aplicações — peças compatíveis com uma versão de veículo específica. */
+  productsByVehicleVersion(tenantId: string, vehicleVersionId: string) {
+    return this.prisma.product.findMany({
+      where: { tenantId, deletedAt: null, status: 'active', vehicleApplications: { some: { vehicleVersionId } } },
+      include: {
+        brand: { select: { name: true } },
+        unit: { select: { code: true } },
+        stocks: { select: { quantityOnHand: true } },
+        vehicleApplications: { where: { vehicleVersionId }, select: { position: true, notes: true } },
+      },
+      orderBy: { internalCode: 'asc' },
+    });
+  }
 }

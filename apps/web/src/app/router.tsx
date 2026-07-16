@@ -16,6 +16,7 @@ const DashboardPage = lazy(() => import('@/modules/dashboard/pages/DashboardPage
 const SettingsPage = lazy(() => import('@/modules/settings/pages/SettingsPage'));
 const ProductListPage = lazy(() => import('@/modules/products/pages/ProductListPage'));
 const ProductFormPage = lazy(() => import('@/modules/products/pages/ProductFormPage'));
+const VehicleApplicationsCatalogPage = lazy(() => import('@/modules/products/pages/VehicleApplicationsCatalogPage'));
 const InventoryDashboardPage = lazy(() => import('@/modules/inventory/pages/InventoryDashboardPage'));
 const StockMovementsPage = lazy(() => import('@/modules/inventory/pages/StockMovementsPage'));
 const StockTransfersPage = lazy(() => import('@/modules/inventory/pages/StockTransfersPage'));
@@ -143,6 +144,14 @@ export const router = createBrowserRouter([
         element: (
           <PermissionGuard permissions={{ module: 'products', required: ['view'] }}>
             {withSuspense(ProductFormPage)}
+          </PermissionGuard>
+        ),
+      },
+      {
+        path: `${productsNavItem.path}/catalogo-aplicacoes`,
+        element: (
+          <PermissionGuard permissions={{ module: 'products', required: ['view'] }}>
+            {withSuspense(VehicleApplicationsCatalogPage)}
           </PermissionGuard>
         ),
       },

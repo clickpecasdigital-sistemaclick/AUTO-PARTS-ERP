@@ -1,5 +1,5 @@
 # =============================================================================
-# AutoCore ERP — Netlify Deploy (Frontend React/Vite)
+# Auto Parts ERP — Netlify Deploy (Frontend React/Vite)
 # =============================================================================
 # ARQUITETURA DE DEPLOY:
 #   Frontend → Netlify (este arquivo)
@@ -61,11 +61,11 @@
 
 [context.production.environment]
   VITE_APP_ENV  = "production"
-  VITE_APP_NAME = "AutoCore ERP"
+  VITE_APP_NAME = "Auto Parts ERP"
 
 [context.deploy-preview.environment]
   VITE_APP_ENV  = "staging"
-  VITE_APP_NAME = "AutoCore ERP (Preview)"
+  VITE_APP_NAME = "Auto Parts ERP (Preview)"
 
 [context.branch-deploy.environment]
   VITE_APP_ENV  = "staging"

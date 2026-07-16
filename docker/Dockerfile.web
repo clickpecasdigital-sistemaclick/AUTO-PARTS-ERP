@@ -1,5 +1,5 @@
 # =============================================================================
-# Dockerfile — AutoCore ERP Frontend (Vite + React)
+# Dockerfile — Auto Parts ERP Frontend (Vite + React)
 # Multi-stage: build → Nginx (Alpine)
 # =============================================================================
 

@@ -20,7 +20,7 @@ export default function SuperAdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Super Admin" description="Painel global da plataforma AutoCore ERP SaaS." />
+      <PageHeader title="Super Admin" description="Painel global da plataforma Auto Parts ERP SaaS." />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-lg" />) : (

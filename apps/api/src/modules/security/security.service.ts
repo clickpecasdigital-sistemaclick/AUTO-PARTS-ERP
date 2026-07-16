@@ -152,7 +152,7 @@ export class SecurityService {
       update: { secret: encryptedSecret, backupCodes: backupHashes, isEnabled: false },
     });
 
-    const qrCodeUrl = generateURI({ issuer: 'AutoCore ERP', label: ctx.userId ?? 'usuario', secret });
+    const qrCodeUrl = generateURI({ issuer: 'Auto Parts ERP', label: ctx.userId ?? 'usuario', secret });
     await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'update', entity: 'TwoFactorAuth', entityId: ctx.userId, after: { event: '2fa_setup_initiated' } });
 
     return { secret, qrCodeUrl, backupCodes };

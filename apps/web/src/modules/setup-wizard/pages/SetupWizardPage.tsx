@@ -56,7 +56,7 @@ export default function SetupWizardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Assistente de Implantação"
-        description="Configure o AutoCore ERP passo a passo para começar a operar."
+        description="Configure o Auto Parts ERP passo a passo para começar a operar."
         actions={
           <Button variant="outline" onClick={() => autoDetect.mutate()} isLoading={autoDetect.isPending}>
             <Wand2 className="size-4" /> Detectar automaticamente
@@ -68,7 +68,7 @@ export default function SetupWizardPage() {
         <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-center">
           <CheckCircle2 className="mx-auto size-8 text-primary" />
           <p className="mt-2 font-medium">Configuração concluída!</p>
-          <p className="text-sm text-muted-foreground">Seu AutoCore ERP está pronto para operar.</p>
+          <p className="text-sm text-muted-foreground">Seu Auto Parts ERP está pronto para operar.</p>
         </div>
       )}
 

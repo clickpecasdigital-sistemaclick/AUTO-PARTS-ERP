@@ -38,7 +38,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <SidebarNav collapsed={collapsed} />
 
       <div className="border-t border-sidebar-border p-3 text-xs text-sidebar-foreground/60">
-        {!collapsed && <span>v0.1.0 · AutoCore ERP</span>}
+        {!collapsed && <span>v0.1.0 · Auto Parts ERP · por Elismar</span>}
       </div>
     </aside>
   );

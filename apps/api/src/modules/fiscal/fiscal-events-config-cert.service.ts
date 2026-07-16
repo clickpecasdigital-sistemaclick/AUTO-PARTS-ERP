@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { AuditService } from '@/common/audit/audit.service';
 import { NfeXmlBuilderService } from './xml/nfe-xml-builder.service';
+import { FiscalSignatureService } from './fiscal-signature.service';
+import { SupabaseStorageService } from '@/common/storage/supabase-storage.service';
 import type { RequestContext } from '@/common/types/request-context';
 
 /** Eventos fiscais: Cancelamento, CC-e, Inutilização (briefing). */
@@ -135,28 +137,59 @@ export class FiscalCertificateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly signature: FiscalSignatureService,
+    private readonly storage: SupabaseStorageService,
   ) {}
 
   listCertificates(tenantId: string, companyId?: string) {
     return this.prisma.fiscalCertificate.findMany({ where: { tenantId, ...(companyId ? { companyId } : {}) }, orderBy: { createdAt: 'desc' } });
   }
 
-  /** Upload de certificado A1 (.pfx). A senha NUNCA e enviada ao servidor — e usada pelo cliente para verificar o arquivo antes do upload. */
+  /**
+   * Upload de certificado A1 (.pfx). Diferente da versão anterior — que
+   * confiava cegamente em metadados enviados pelo cliente e nunca recebia
+   * a senha —, aqui o backend abre o arquivo de verdade para confirmar
+   * que a senha está certa e extrair os dados reais (validade, titular,
+   * número de série), e guarda a senha criptografada (nunca em texto
+   * puro), porque sem ela o servidor jamais conseguiria assinar nada.
+   */
   async uploadCertificate(
     ctx: RequestContext,
     companyId: string,
-    params: { alias: string; storageRef: string; validFrom: string; validUntil: string; serialNumber?: string; subjectCN?: string; renewedFromId?: string },
+    params: { alias: string; password: string; fileBuffer: Buffer; originalName: string; renewedFromId?: string },
   ) {
+    const inspected = this.signature.inspectCertificate(params.fileBuffer, params.password);
+    if (inspected.validUntil < new Date()) {
+      throw new BadRequestException(`Este certificado venceu em ${inspected.validUntil.toLocaleDateString('pt-BR')} — envie um certificado válido.`);
+    }
+
+    const storageRef = `${ctx.tenantId}/${companyId}/${Date.now()}-${params.originalName}`;
+    await this.storage.upload('fiscal-certificates', storageRef, params.fileBuffer, 'application/x-pkcs12');
+    const encryptedPassword = this.signature.encryptPassword(params.password);
+
     if (params.renewedFromId) {
       await this.prisma.fiscalCertificate.update({ where: { id: params.renewedFromId }, data: { isActive: false } });
     }
 
     const cert = await this.prisma.fiscalCertificate.create({
-      data: { tenantId: ctx.tenantId, companyId, isActive: true, validFrom: new Date(params.validFrom), validUntil: new Date(params.validUntil), alias: params.alias, storageRef: params.storageRef, serialNumber: params.serialNumber, subjectCN: params.subjectCN, renewedFromId: params.renewedFromId },
+      data: {
+        tenantId: ctx.tenantId,
+        companyId,
+        isActive: true,
+        validFrom: inspected.validFrom,
+        validUntil: inspected.validUntil,
+        alias: params.alias,
+        storageRef,
+        serialNumber: inspected.serialNumber,
+        subjectCN: inspected.subjectCN,
+        encryptedPassword,
+        renewedFromId: params.renewedFromId,
+      },
     });
 
-    await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'document_upload', entity: 'FiscalCertificate', entityId: cert.id, after: { alias: params.alias, validUntil: params.validUntil } });
-    return cert;
+    // Nunca logar a senha (nem criptografada) — só os metadados não-sensíveis.
+    await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'document_upload', entity: 'FiscalCertificate', entityId: cert.id, after: { alias: params.alias, validUntil: inspected.validUntil, subjectCN: inspected.subjectCN } });
+    return { ...cert, encryptedPassword: undefined };
   }
 
   /** Verifica certificados prestes a vencer (briefing: "Alerta de vencimento"). */

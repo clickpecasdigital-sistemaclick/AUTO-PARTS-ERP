@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
@@ -195,8 +196,16 @@ export class FiscalConfigController {
 
   @Post('certificates')
   @RequirePermission('fiscal', 'manage_certs')
-  uploadCert(@CurrentUser() u: AuthenticatedRequestUser, @Req() req: Request, @Body('companyId') companyId: string, @Body() params: Record<string, unknown>) {
-    return this.cert.uploadCertificate(toCtx(u, req), companyId, params as never);
+  @UseInterceptors(FileInterceptor('file'))
+  uploadCert(
+    @CurrentUser() u: AuthenticatedRequestUser,
+    @Req() req: Request,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('companyId') companyId: string,
+    @Body('alias') alias: string,
+    @Body('password') password: string,
+  ) {
+    return this.cert.uploadCertificate(toCtx(u, req), companyId, { alias, password, fileBuffer: file.buffer, originalName: file.originalname });
   }
 
   @Get('certificates/expiry-alerts')

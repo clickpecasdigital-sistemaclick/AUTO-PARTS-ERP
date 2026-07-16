@@ -87,7 +87,7 @@ export class BackupService {
       this.prisma.customer.findMany({ where: { ...where, ...updatedSince }, take: 100000 }),
     ]);
 
-    return { type, timestamp: new Date().toISOString(), since: since?.toISOString(), tenants, users, products, customers, note: 'AutoCore ERP Backup v14.0.0' };
+    return { type, timestamp: new Date().toISOString(), since: since?.toISOString(), tenants, users, products, customers, note: 'Auto Parts ERP Backup v14.0.0' };
   }
 
   private async getLastFullBackupDate(): Promise<Date | null> {

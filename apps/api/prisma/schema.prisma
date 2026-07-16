@@ -4536,6 +4536,7 @@ model FiscalCertificate {
   validUntil     DateTime  @map("valid_until") @db.Date
   serialNumber   String?   @map("serial_number")
   subjectCN      String?   @map("subject_cn")
+  encryptedPassword String @map("encrypted_password") // senha do .pfx, criptografada (AES-256-GCM) — nunca em texto puro
   isActive       Boolean   @default(true) @map("is_active")
   renewedFromId  String?   @map("renewed_from_id") @db.Uuid
   expiryAlertSentAt DateTime? @map("expiry_alert_sent_at")
@@ -6114,4 +6115,30 @@ model ExportJob {
 
   @@index([tenantId])
   @@map("export_jobs")
+}
+
+/// Conexão OAuth2 com o Mercado Livre (uma por tenant). Guarda as
+/// credenciais do app (Client ID/Secret) e os tokens obtidos após o
+/// vendedor autorizar — tudo criptografado, nunca em texto puro. Base
+/// para sincronizar anúncios/pedidos nas próximas sprints; esta primeira
+/// entrega cobre a conexão em si (autorizar, renovar token, desconectar).
+model MercadoLivreIntegration {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @unique @map("tenant_id") @db.Uuid
+  clientId              String    @map("client_id")
+  encryptedClientSecret String    @map("encrypted_client_secret")
+  redirectUri           String    @map("redirect_uri")
+  mlUserId              String?   @map("ml_user_id")
+  mlNickname            String?   @map("ml_nickname")
+  encryptedAccessToken  String?   @map("encrypted_access_token")
+  encryptedRefreshToken String?   @map("encrypted_refresh_token")
+  tokenExpiresAt        DateTime? @map("token_expires_at")
+  scope                 String?
+  isActive              Boolean   @default(false) @map("is_active")
+  lastSyncAt            DateTime? @map("last_sync_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("mercado_livre_integrations")
 }

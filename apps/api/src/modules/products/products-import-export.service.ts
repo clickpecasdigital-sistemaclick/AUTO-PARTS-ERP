@@ -143,7 +143,7 @@ export class ProductsImportExportService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.fontSize(16).text('AutoCore ERP — Catálogo de Produtos', { align: 'left' });
+      doc.fontSize(16).text('Auto Parts ERP — Catálogo de Produtos', { align: 'left' });
       doc.moveDown(0.5);
       doc.fontSize(9).fillColor('#666').text(`Gerado em ${new Date().toLocaleString('pt-BR')} — ${products.length} produto(s)`);
       doc.moveDown(1);

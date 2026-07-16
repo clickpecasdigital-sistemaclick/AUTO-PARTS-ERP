@@ -24,6 +24,14 @@ export const fiscalService = {
   listCfop: (type?: string) => httpClient.get('/fiscal/cfop', { params: { type } }),
   listCertificates: () => httpClient.get('/fiscal/certificates'),
   getExpiryAlerts: () => httpClient.get('/fiscal/certificates/expiry-alerts'),
+  uploadCertificate: (companyId: string, alias: string, password: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('companyId', companyId);
+    formData.append('alias', alias);
+    formData.append('password', password);
+    return httpClient.post('/fiscal/certificates', formData);
+  },
 };
 
 // ---- Hooks ------------------------------------------------------------------
@@ -87,6 +95,19 @@ export function useCreateTaxRule() {
 
 export function useFiscalCertificates() {
   return useQuery({ queryKey: [KEY, 'certificates'], queryFn: fiscalService.listCertificates });
+}
+
+export function useUploadCertificate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ companyId, alias, password, file }: { companyId: string; alias: string; password: string; file: File }) =>
+      fiscalService.uploadCertificate(companyId, alias, password, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [KEY, 'certificates'] });
+      toast.success('Certificado enviado e validado com sucesso');
+    },
+    onError: (error) => toast.error('Não foi possível enviar o certificado', error instanceof Error ? error.message : undefined),
+  });
 }
 
 export function useExpiryAlerts() {

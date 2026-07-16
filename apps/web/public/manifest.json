@@ -1,6 +1,6 @@
 {
-  "name": "AutoCore ERP",
-  "short_name": "AutoCore",
+  "name": "Auto Parts ERP",
+  "short_name": "AutoParts",
   "description": "Sistema ERP para oficinas mecânicas e distribuidoras de autopeças",
   "start_url": "/",
   "display": "standalone",

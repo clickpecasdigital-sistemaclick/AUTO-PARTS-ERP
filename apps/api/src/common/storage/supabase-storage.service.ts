@@ -41,4 +41,12 @@ export class SupabaseStorageService {
     if (error) throw new InternalServerErrorException(error.message);
     return data.signedUrl;
   }
+
+  /** Baixa o conteúdo bruto de um arquivo privado (ex: certificado .pfx) — uso interno do backend, nunca exposto direto ao navegador. */
+  async download(bucket: string, path: string): Promise<Buffer> {
+    if (!this.client) throw new InternalServerErrorException('Storage não configurado');
+    const { data, error } = await this.client.storage.from(bucket).download(path);
+    if (error) throw new InternalServerErrorException(`Download falhou: ${error.message}`);
+    return Buffer.from(await data.arrayBuffer());
+  }
 }

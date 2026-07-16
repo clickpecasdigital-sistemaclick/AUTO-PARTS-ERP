@@ -74,7 +74,7 @@ export class LgpdService {
       this.prisma.auditLog.findMany({ where: { userId: ctx.userId, tenantId: ctx.tenantId }, take: 500, orderBy: { createdAt: 'desc' } }),
     ]);
 
-    const exportData = { user, consents, recentActivity: auditLogs, exportedAt: new Date().toISOString(), format: 'AutoCore ERP LGPD Export v1.0' };
+    const exportData = { user, consents, recentActivity: auditLogs, exportedAt: new Date().toISOString(), format: 'Auto Parts ERP LGPD Export v1.0' };
 
     await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'export', entity: 'LgpdRequest', entityId: ctx.userId, after: { event: 'data_exported' } });
 

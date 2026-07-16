@@ -29,9 +29,9 @@ export function StockTab({ product }: StockTabProps) {
         </div>
       )}
 
-      <Alert variant="info" title="Saldo somente leitura">
-        Estoque mínimo/máximo são parâmetros deste cadastro. Endereço logístico (depósito, corredor, prateleira) e o
-        saldo real por depósito são geridos pelo Módulo de Estoque, ainda não implementado.
+      <Alert variant="info" title="Saldo somente leitura aqui">
+        Estoque mínimo/máximo são parâmetros deste cadastro. O endereço logístico (depósito, corredor, prateleira) e
+        as movimentações de entrada/saída são feitos no módulo Estoque, na aba correspondente do menu principal.
       </Alert>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

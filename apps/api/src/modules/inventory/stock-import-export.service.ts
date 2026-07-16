@@ -90,7 +90,7 @@ export class StockImportExportService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.fontSize(16).text('AutoCore ERP — Relatório de Estoque');
+      doc.fontSize(16).text('Auto Parts ERP — Relatório de Estoque');
       doc.moveDown(0.5);
       doc.fontSize(9).fillColor('#666').text(`Gerado em ${new Date().toLocaleString('pt-BR')} — ${stocks.length} produto(s)`);
       doc.moveDown(1);
