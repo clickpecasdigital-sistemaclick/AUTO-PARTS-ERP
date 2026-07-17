@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Car, Save, User, X } from 'lucide-react';
+import { Car, History, Save, Sparkles, User, X } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,7 +23,15 @@ import { useCustomers } from '@/modules/mdm/hooks/useMdm';
 import { PdvProductSearch } from '../components/PdvProductSearch';
 import { PdvCartTable } from '../components/PdvCartTable';
 import { PdvPaymentDialog } from '../components/PdvPaymentDialog';
-import { useAddCartItem, useCancelCart, useCart, useCheckout, useOpenCart, useSetCartCustomer } from '../hooks/usePdv';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { useAddCartItem, useCancelCart, useCart, useCheckout, useOpenCart, useSetCartCustomer, useSetCartDiscount, useRelatedProducts, useFrequentlyBoughtTogether, useCustomerRecentPurchases } from '../hooks/usePdv';
 import { saleModeLabels, type ProductSearchResult, type SaleMode } from '../types/pdv.types';
 
 const creditVariant: Record<string, 'secondary' | 'success' | 'warning' | 'destructive'> = {
@@ -66,16 +74,36 @@ export default function PdvSalePage() {
   const openCart = useOpenCart();
   const addItem = useAddCartItem(cartId ?? '');
   const setCustomer = useSetCartCustomer(cartId ?? '');
+  const setDiscount = useSetCartDiscount(cartId ?? '');
   const checkout = useCheckout(cartId ?? '');
   const cancelCart = useCancelCart(cartId ?? '');
+  const [isDiscountOpen, setIsDiscountOpen] = useState(false);
+  const [discountValue, setDiscountValue] = useState('');
+  const [discountReason, setDiscountReason] = useState('');
+  const [lastAddedProductId, setLastAddedProductId] = useState<string | undefined>();
+  const { data: relatedProducts } = useRelatedProducts(lastAddedProductId, cart?.warehouseId ?? undefined);
+  const { data: frequentlyBought } = useFrequentlyBoughtTogether(lastAddedProductId);
+  const { data: recentPurchases } = useCustomerRecentPurchases(cart?.customerId);
 
   useKeyboardShortcut('F2', () => document.getElementById('pdv-search-input')?.focus());
   useKeyboardShortcut('F4', () => {
     if (cart && cart.items.length > 0) setIsPaymentOpen(true);
   });
+  useKeyboardShortcut('F5', () => {
+    if (cart && cart.items.length > 0) setIsDiscountOpen(true);
+  });
   useKeyboardShortcut('F6', () => {
     if (cartId) cancelCart.mutate('Cancelado pelo operador (Ctrl+F6)');
   });
+  useKeyboardShortcut('Escape', () => setIsDiscountOpen(false), { meta: false, ctrl: false });
+
+  async function handleApplyDiscount() {
+    if (!discountValue) return;
+    await setDiscount.mutateAsync({ discountAmount: Number(discountValue), reason: discountReason || undefined });
+    setIsDiscountOpen(false);
+    setDiscountValue('');
+    setDiscountReason('');
+  }
 
   async function handleStart() {
     if (!activeBranchId || !warehouseId) return;
@@ -86,6 +114,7 @@ export default function PdvSalePage() {
   function handleSelectProduct(product: ProductSearchResult) {
     if (!cartId) return;
     addItem.mutate({ productId: product.id, quantity: 1 });
+    setLastAddedProductId(product.id);
   }
 
   async function handleConfirmPayment(payments: { paymentMethodId: string; amount: number; installments: number }[]) {
@@ -168,7 +197,10 @@ export default function PdvSalePage() {
                 <User className="size-4" /> Cliente
               </p>
               <p className="text-sm">{cart.customer.tradeName ?? cart.customer.name}</p>
-              <Badge variant={creditVariant[cart.customer.creditStatus] ?? 'secondary'}>{cart.customer.creditStatus}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={creditVariant[cart.customer.creditStatus] ?? 'secondary'}>{cart.customer.creditStatus}</Badge>
+                <span className="text-xs text-muted-foreground">Limite: {formatCurrencyBRL(Number(cart.customer.creditLimit))}</span>
+              </div>
               <Autocomplete
                 value={null}
                 onChange={(v) => v && setCustomer.mutate({ customerId: v })}
@@ -182,6 +214,69 @@ export default function PdvSalePage() {
               )}
             </CardContent>
           </Card>
+
+          {!!recentPurchases?.length && (
+            <Card>
+              <CardContent className="space-y-2 p-4">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <History className="size-4" /> Últimas compras do cliente
+                </p>
+                {recentPurchases.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => cartId && addItem.mutate({ productId: item.product.id, quantity: 1 })}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+                  >
+                    <span>{item.product.shortDescription}</span>
+                    <span className="font-numeric text-muted-foreground">{formatCurrencyBRL(Number(item.product.salePrice))}</span>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {(!!relatedProducts?.length || !!frequentlyBought?.length) && (
+            <Card>
+              <CardContent className="space-y-3 p-4">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <Sparkles className="size-4" /> Sugestões pra esse item
+                </p>
+                {!!relatedProducts?.length && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Similares / equivalentes / substitutos</p>
+                    {relatedProducts.map((r) => {
+                      const onHand = r.product.stocks.reduce((sum, s) => sum + Number(s.quantityOnHand) - Number(s.quantityReserved), 0);
+                      return (
+                        <button
+                          key={r.product.id}
+                          onClick={() => cartId && addItem.mutate({ productId: r.product.id, quantity: 1 })}
+                          className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+                        >
+                          <span>{r.product.shortDescription}</span>
+                          <span className={`font-numeric ${onHand > 0 ? 'text-muted-foreground' : 'text-destructive'}`}>{onHand > 0 ? `${onHand} disp.` : 'sem estoque'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {!!frequentlyBought?.length && (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Vendidos junto com esse item</p>
+                    {frequentlyBought.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => cartId && addItem.mutate({ productId: p.id, quantity: 1 })}
+                        className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+                      >
+                        <span>{p.shortDescription}</span>
+                        <span className="font-numeric text-muted-foreground">{formatCurrencyBRL(Number(p.salePrice))}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardContent className="space-y-2 p-4">
@@ -198,6 +293,22 @@ export default function PdvSalePage() {
                 <span>Total</span>
                 <span className="font-numeric">{formatCurrencyBRL(Number(cart.totalAmount))}</span>
               </div>
+              {(() => {
+                const totalCost = cart.items.reduce((sum, i) => sum + Number(i.product.averageCostPrice ?? 0) * Number(i.quantity), 0);
+                const profit = Number(cart.totalAmount) - totalCost;
+                const margin = Number(cart.totalAmount) > 0 ? (profit / Number(cart.totalAmount)) * 100 : 0;
+                return cart.items.length > 0 ? (
+                  <div className="flex justify-between border-t border-border pt-2 text-xs text-muted-foreground">
+                    <span>Lucro estimado</span>
+                    <span className="font-numeric">
+                      {formatCurrencyBRL(profit)} ({margin.toFixed(1)}%)
+                    </span>
+                  </div>
+                ) : null;
+              })()}
+              <Button variant="outline" className="w-full" onClick={() => setIsDiscountOpen(true)} disabled={cart.items.length === 0}>
+                Aplicar desconto (Ctrl+F5)
+              </Button>
               <Button className="w-full" size="lg" onClick={() => setIsPaymentOpen(true)} disabled={cart.items.length === 0}>
                 <Save /> Finalizar venda (Ctrl+F4)
               </Button>
@@ -207,6 +318,27 @@ export default function PdvSalePage() {
       </div>
 
       <PdvPaymentDialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen} total={Number(cart.totalAmount)} onConfirm={handleConfirmPayment} isLoading={checkout.isPending} />
+
+      <Dialog open={isDiscountOpen} onOpenChange={setIsDiscountOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aplicar desconto na venda</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <FormField label="Valor do desconto (R$)" required>
+              <Input type="number" step="0.01" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="font-numeric" autoFocus />
+            </FormField>
+            <FormField label="Motivo">
+              <Input value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="Ex: cliente fidelidade, negociação..." />
+            </FormField>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleApplyDiscount} isLoading={setDiscount.isPending} disabled={!discountValue}>
+              Aplicar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

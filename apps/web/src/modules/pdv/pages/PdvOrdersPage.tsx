@@ -1,10 +1,17 @@
-import { useState } from 'react';
-import { CheckCircle2, PackageCheck, PackageSearch, ShoppingBag, Truck, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CheckCircle2, PackageCheck, PackageSearch, Search, ShoppingBag, Truck, X } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -50,16 +57,54 @@ export default function PdvOrdersPage() {
   const cancelOrder = useCancelOrder();
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const filteredOrders = useMemo(() => {
+    if (!orders) return orders;
+    const term = search.trim().toLowerCase();
+    return orders.filter((order) => {
+      const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+      const matchesSearch =
+        !term ||
+        order.code.toLowerCase().includes(term) ||
+        (order.customer.tradeName ?? order.customer.name).toLowerCase().includes(term);
+      return matchesStatus && matchesSearch;
+    });
+  }, [orders, search, statusFilter]);
 
   return (
     <div>
       <PageHeader title="Pedidos de Venda" description="Reserva automática de estoque ao aprovar — separação e expedição rastreadas." />
 
-      {isLoading ? null : !orders || orders.length === 0 ? (
-        <EmptyState icon={ShoppingBag} title="Nenhum pedido registrado" description="Pedidos surgem ao converter um orçamento aprovado." />
+      <div className="mb-4 flex flex-wrap gap-3">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por número ou cliente..."
+          leftIcon={<Search className="size-4" />}
+          className="max-w-xs"
+        />
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os status</SelectItem>
+            {Object.entries(orderStatusLabels).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isLoading ? null : !filteredOrders || filteredOrders.length === 0 ? (
+        <EmptyState icon={ShoppingBag} title="Nenhum pedido encontrado" description="Ajuste os filtros ou aguarde novos pedidos aparecerem aqui." />
       ) : (
         <div className="space-y-3">
-          {orders.map((order) => (
+          {filteredOrders.map((order) => (
             <Card key={order.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div>

@@ -8,6 +8,30 @@ export function useProductSearch(term: string) {
   return useQuery({ queryKey: [KEY, 'search', term], queryFn: () => pdvService.searchProducts(term), enabled: term.trim().length >= 2 });
 }
 
+export function useRelatedProducts(productId: string | undefined, warehouseId?: string) {
+  return useQuery({
+    queryKey: [KEY, 'related', productId, warehouseId],
+    queryFn: () => pdvService.getRelatedProducts(productId!, warehouseId),
+    enabled: !!productId,
+  });
+}
+
+export function useFrequentlyBoughtTogether(productId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, 'frequently-bought', productId],
+    queryFn: () => pdvService.getFrequentlyBoughtTogether(productId!),
+    enabled: !!productId,
+  });
+}
+
+export function useCustomerRecentPurchases(customerId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, 'customer-recent-purchases', customerId],
+    queryFn: () => pdvService.getCustomerRecentPurchases(customerId!),
+    enabled: !!customerId,
+  });
+}
+
 export function usePaymentMethods() {
   return useQuery({ queryKey: [KEY, 'payment-methods'], queryFn: pdvService.listPaymentMethods, staleTime: 1000 * 60 * 10 });
 }

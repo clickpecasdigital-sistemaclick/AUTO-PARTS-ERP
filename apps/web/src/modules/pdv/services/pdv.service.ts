@@ -26,11 +26,37 @@ export interface OperatorSales {
   totalAmount: number;
 }
 
+export interface RelatedProductEntry {
+  type: 'similar' | 'equivalent' | 'complementary' | 'substitute';
+  product: { id: string; internalCode: string; shortDescription: string; salePrice: string; brand?: { name: string } | null; stocks: { quantityOnHand: string; quantityReserved: string }[] };
+}
+
+export interface SuggestedProduct {
+  id: string;
+  internalCode: string;
+  shortDescription: string;
+  salePrice: string;
+}
+
+export interface RecentPurchaseItem {
+  id: string;
+  quantity: string;
+  unitPrice: string;
+  sale: { issuedAt: string };
+  product: { id: string; internalCode: string; shortDescription: string; salePrice: string };
+}
+
 /** Camada de serviço HTTP do PDV — espelha 1:1 as rotas de `apps/api/src/modules/pdv`. */
 export const pdvService = {
   // Busca
   searchProducts: (term: string) => httpClient.get<ProductSearchResult[]>('/pdv/search/products', { params: { term } }),
   searchByPlate: (plate: string) => httpClient.get('/pdv/search/by-plate', { params: { plate } }),
+  getRelatedProducts: (productId: string, warehouseId?: string) =>
+    httpClient.get<RelatedProductEntry[]>(`/pdv/search/related/${productId}`, { params: { warehouseId } }),
+  getFrequentlyBoughtTogether: (productId: string) =>
+    httpClient.get<SuggestedProduct[]>(`/pdv/search/frequently-bought/${productId}`),
+  getCustomerRecentPurchases: (customerId: string) =>
+    httpClient.get<RecentPurchaseItem[]>(`/pdv/search/customer-recent-purchases/${customerId}`),
   searchSales: (term: string) =>
     httpClient.get<
       { id: string; code: string; totalAmount: string; issuedAt: string; customer: { name: string }; items: { id: string; productId: string; quantity: string; unitPrice: string; product: { internalCode: string; shortDescription: string } }[] }[]

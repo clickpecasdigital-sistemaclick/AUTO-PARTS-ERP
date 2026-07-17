@@ -32,7 +32,7 @@ export function PdvProductSearch({ warehouseId, onSelect }: PdvProductSearchProp
         id="pdv-search-input"
         value={term}
         onChange={(e) => setTerm(e.target.value)}
-        placeholder="Código, código de barras, OEM, descrição ou marca... (F2)"
+        placeholder="Código, código de barras, OEM, similar, descrição ou marca... (F2)"
         leftIcon={<Search className="size-4" />}
         autoFocus
         className="font-numeric"
@@ -50,6 +50,9 @@ export function PdvProductSearch({ warehouseId, onSelect }: PdvProductSearchProp
             results.map((product) => {
               const stock = product.stocks.find((s) => s.warehouseId === warehouseId);
               const available = stock ? Number(stock.quantityOnHand) - Number(stock.quantityReserved) : null;
+              const cost = Number(product.averageCostPrice || product.costPrice || 0);
+              const price = Number(product.salePrice);
+              const margin = cost > 0 ? ((price - cost) / price) * 100 : null;
               return (
                 <button
                   key={product.id}
@@ -61,9 +64,13 @@ export function PdvProductSearch({ warehouseId, onSelect }: PdvProductSearchProp
                     <p className="font-numeric text-xs text-muted-foreground">
                       {product.internalCode} {product.brand && `· ${product.brand.name}`}
                       {available !== null && <span className={available <= 0 ? 'text-destructive' : ''}> · Disp: {available}</span>}
+                      {product.defaultLocation?.fullAddress && <span> · {product.defaultLocation.fullAddress}</span>}
                     </p>
                   </div>
-                  <span className="font-numeric font-medium">{formatCurrencyBRL(Number(product.salePrice))}</span>
+                  <div className="text-right">
+                    <span className="font-numeric font-medium">{formatCurrencyBRL(price)}</span>
+                    {margin !== null && <p className="font-numeric text-xs text-muted-foreground">Margem: {margin.toFixed(1)}%</p>}
+                  </div>
                 </button>
               );
             })

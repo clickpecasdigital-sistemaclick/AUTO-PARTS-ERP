@@ -14,6 +14,7 @@ export interface CartProduct {
   id: string;
   internalCode: string;
   shortDescription: string;
+  averageCostPrice: string;
   unit: { code: string };
 }
 
@@ -61,8 +62,12 @@ export interface ProductSearchResult {
   barcode?: string | null;
   shortDescription: string;
   salePrice: string;
+  costPrice: string;
+  averageCostPrice: string;
   brand?: { name: string } | null;
   unit: { code: string };
+  category?: { name: string } | null;
+  defaultLocation?: { fullAddress: string | null; level: string; position: string } | null;
   stocks: { warehouseId: string; quantityOnHand: string; quantityReserved: string }[];
 }
 

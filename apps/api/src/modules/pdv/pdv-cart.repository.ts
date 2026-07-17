@@ -6,7 +6,7 @@ export const CART_INCLUDE = {
   customerVehicle: true,
   salesperson: { include: { employee: { select: { name: true } } } },
   terminal: true,
-  items: { include: { product: { select: { id: true, internalCode: true, shortDescription: true, unit: { select: { code: true } } } } } },
+  items: { include: { product: { select: { id: true, internalCode: true, shortDescription: true, averageCostPrice: true, unit: { select: { code: true } } } } } },
   payments: { include: { paymentMethod: true } },
 } satisfies any;
 

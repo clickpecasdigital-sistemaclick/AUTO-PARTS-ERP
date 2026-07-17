@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
@@ -33,6 +33,34 @@ export class PdvSearchController {
   @ApiOperation({ summary: 'Resolve o veículo pela placa e retorna as peças compatíveis' })
   searchByPlate(@CurrentUser() user: AuthenticatedRequestUser, @Query('plate') plate: string) {
     return this.service.searchByPlate(user.tenantId, plate);
+  }
+
+  @Get('by-chassis')
+  @RequirePermission('sales', 'view')
+  @ApiOperation({ summary: 'Resolve o veículo pelo chassi e retorna as peças compatíveis' })
+  searchByChassis(@CurrentUser() user: AuthenticatedRequestUser, @Query('chassis') chassis: string) {
+    return this.service.searchByChassis(user.tenantId, chassis);
+  }
+
+  @Get('related/:productId')
+  @RequirePermission('sales', 'view')
+  @ApiOperation({ summary: 'Produtos similares/equivalentes/substitutos, prontos pra vender' })
+  getRelatedProducts(@CurrentUser() user: AuthenticatedRequestUser, @Param('productId') productId: string, @Query('warehouseId') warehouseId?: string) {
+    return this.service.getRelatedProducts(user.tenantId, productId, warehouseId);
+  }
+
+  @Get('frequently-bought/:productId')
+  @RequirePermission('sales', 'view')
+  @ApiOperation({ summary: 'Produtos historicamente vendidos junto com este (venda cruzada)' })
+  getFrequentlyBoughtTogether(@CurrentUser() user: AuthenticatedRequestUser, @Param('productId') productId: string) {
+    return this.service.getFrequentlyBoughtTogether(user.tenantId, productId);
+  }
+
+  @Get('customer-recent-purchases/:customerId')
+  @RequirePermission('sales', 'view')
+  @ApiOperation({ summary: 'Últimas compras do cliente (pra sugerir recompra rápida)' })
+  getCustomerRecentPurchases(@CurrentUser() user: AuthenticatedRequestUser, @Param('customerId') customerId: string) {
+    return this.service.getCustomerRecentPurchases(user.tenantId, customerId);
   }
 
   @Get('by-vehicle')
