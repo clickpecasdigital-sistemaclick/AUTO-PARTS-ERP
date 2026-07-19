@@ -17,8 +17,12 @@ const SettingsPage = lazy(() => import('@/modules/settings/pages/SettingsPage'))
 const ProductListPage = lazy(() => import('@/modules/products/pages/ProductListPage'));
 const ProductFormPage = lazy(() => import('@/modules/products/pages/ProductFormPage'));
 const VehicleApplicationsCatalogPage = lazy(() => import('@/modules/products/pages/VehicleApplicationsCatalogPage'));
+const VehicleDirectoryPage = lazy(() => import('@/modules/mdm/pages/VehicleDirectoryPage'));
+const PromotionsPage = lazy(() => import('@/modules/products/pages/PromotionsPage'));
+const LostSalesPage = lazy(() => import('@/modules/products/pages/LostSalesPage'));
 const SuppliersListPage = lazy(() => import('@/modules/purchasing/pages/SuppliersListPage'));
 const UsersPage = lazy(() => import('@/modules/settings/pages/UsersPage'));
+const AuditPage = lazy(() => import('@/modules/settings/pages/AuditPage'));
 const InventoryDashboardPage = lazy(() => import('@/modules/inventory/pages/InventoryDashboardPage'));
 const StockMovementsPage = lazy(() => import('@/modules/inventory/pages/StockMovementsPage'));
 const StockTransfersPage = lazy(() => import('@/modules/inventory/pages/StockTransfersPage'));
@@ -43,18 +47,20 @@ const PdvReturnsPage = lazy(() => import('@/modules/pdv/pages/PdvReturnsPage'));
 const FinancialDashboardPage = lazy(() => import('@/modules/financial/pages/FinancialDashboardPage'));
 const PayablesPage = lazy(() => import('@/modules/financial/pages/PayablesPage'));
 const ReceivablesPage = lazy(() => import('@/modules/financial/pages/ReceivablesPage'));
+const BankSlipsPage = lazy(() => import('@/modules/financial/pages/BankSlipsPage'));
 const WorkshopDashboardPage = lazy(() => import('@/modules/workshop/pages/WorkshopDashboardPage'));
 const ServiceOrdersListPage = lazy(() => import('@/modules/workshop/pages/ServiceOrdersListPage'));
 const ServiceOrderCreatePage = lazy(() => import('@/modules/workshop/pages/ServiceOrderCreatePage'));
 const ServiceOrderDetailPage = lazy(() => import('@/modules/workshop/pages/ServiceOrderDetailPage'));
 const WorkshopAgendaPage = lazy(() => import('@/modules/workshop/pages/WorkshopAgendaPage'));
+const WarrantyPage = lazy(() => import('@/modules/workshop/pages/WarrantyPage'));
+const PortariaPage = lazy(() => import('@/modules/workshop/pages/PortariaPage'));
 const FiscalMonitorPage = lazy(() => import('@/modules/fiscal/pages/FiscalMonitorPage'));
 const FiscalInvoiceListPage = lazy(() => import('@/modules/fiscal/pages/FiscalInvoiceListPage'));
 const FiscalConfigPage = lazy(() => import('@/modules/fiscal/pages/FiscalConfigPage'));
 const ExecutiveDashboardPage = lazy(() => import('@/modules/bi/pages/ExecutiveDashboardPage'));
 const AiAssistantPage = lazy(() => import('@/modules/bi/pages/AiAssistantPage'));
 const AlertsCenterPage = lazy(() => import('@/modules/bi/pages/AlertsCenterPage'));
-const PlansPage = lazy(() => import('@/modules/saas/pages/PlansPage'));
 const SuperAdminDashboardPage = lazy(() => import('@/modules/saas/pages/SuperAdminDashboardPage'));
 const SetupWizardPage = lazy(() => import('@/modules/setup-wizard/pages/SetupWizardPage'));
 
@@ -69,6 +75,7 @@ function withSuspense(Component: LazyExoticComponent<() => JSX.Element>) {
 const dashboardNavItem = navItems.find((item) => item.id === 'dashboard')!;
 const settingsNavItem = navItems.find((item) => item.id === 'configuracoes')!;
 const usuariosNavItem = navItems.find((item) => item.id === 'usuarios')!;
+const auditoriaNavItem = navItems.find((item) => item.id === 'administracao-auditoria')!;
 const productsNavItem = navItems.find((item) => item.id === 'produtos')!;
 const stockNavItem = navItems.find((item) => item.id === 'estoque')!;
 const purchasingNavItem = navItems.find((item) => item.id === 'compras')!;
@@ -80,7 +87,6 @@ const financialNavItem = navItems.find((item) => item.id === 'financeiro')!;
 const workshopNavItem = navItems.find((item) => item.id === 'oficina')!;
 const fiscalNavItem = navItems.find((item) => item.id === 'fiscal')!;
 const biNavItem = navItems.find((item) => item.id === 'ia')!;
-const planosNavItem = navItems.find((item) => item.id === 'planos')!;
 const superAdminNavItem = navItems.find((item) => item.id === 'superadmin')!;
 
 /**
@@ -136,6 +142,12 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: auditoriaNavItem.path,
+        element: (
+          <PermissionGuard permissions={auditoriaNavItem.permissions}>{withSuspense(AuditPage)}</PermissionGuard>
+        ),
+      },
+      {
         path: productsNavItem.path,
         element: (
           <PermissionGuard permissions={productsNavItem.permissions}>{withSuspense(ProductListPage)}</PermissionGuard>
@@ -162,6 +174,30 @@ export const router = createBrowserRouter([
         element: (
           <PermissionGuard permissions={{ module: 'products', required: ['view'] }}>
             {withSuspense(VehicleApplicationsCatalogPage)}
+          </PermissionGuard>
+        ),
+      },
+      {
+        path: '/veiculo/fichas',
+        element: (
+          <PermissionGuard permissions={{ module: 'customers', required: ['view'] }}>
+            {withSuspense(VehicleDirectoryPage)}
+          </PermissionGuard>
+        ),
+      },
+      {
+        path: `${productsNavItem.path}/promocoes`,
+        element: (
+          <PermissionGuard permissions={{ module: 'products', required: ['view'] }}>
+            {withSuspense(PromotionsPage)}
+          </PermissionGuard>
+        ),
+      },
+      {
+        path: `${productsNavItem.path}/vendas-perdidas`,
+        element: (
+          <PermissionGuard permissions={{ module: 'sales', required: ['view'] }}>
+            {withSuspense(LostSalesPage)}
           </PermissionGuard>
         ),
       },
@@ -316,6 +352,12 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: `${financialNavItem.path}/boleto`,
+        element: (
+          <PermissionGuard permissions={{ module: 'financial', required: ['view'] }}>{withSuspense(BankSlipsPage)}</PermissionGuard>
+        ),
+      },
+      {
         path: workshopNavItem.path,
         element: (
           <PermissionGuard permissions={workshopNavItem.permissions}>{withSuspense(WorkshopDashboardPage)}</PermissionGuard>
@@ -343,6 +385,18 @@ export const router = createBrowserRouter([
         path: `${workshopNavItem.path}/agenda`,
         element: (
           <PermissionGuard permissions={{ module: 'workshop', required: ['view'] }}>{withSuspense(WorkshopAgendaPage)}</PermissionGuard>
+        ),
+      },
+      {
+        path: `${workshopNavItem.path}/garantia`,
+        element: (
+          <PermissionGuard permissions={{ module: 'workshop', required: ['view'] }}>{withSuspense(WarrantyPage)}</PermissionGuard>
+        ),
+      },
+      {
+        path: `${workshopNavItem.path}/portaria`,
+        element: (
+          <PermissionGuard permissions={{ module: 'workshop', required: ['view'] }}>{withSuspense(PortariaPage)}</PermissionGuard>
         ),
       },
       {
@@ -379,12 +433,6 @@ export const router = createBrowserRouter([
         path: `${biNavItem.path}/alertas`,
         element: (
           <PermissionGuard permissions={{ module: 'bi', required: ['view'] }}>{withSuspense(AlertsCenterPage)}</PermissionGuard>
-        ),
-      },
-      {
-        path: planosNavItem.path,
-        element: (
-          <PermissionGuard permissions={{ module: 'settings', required: ['view'] }}>{withSuspense(PlansPage)}</PermissionGuard>
         ),
       },
       {

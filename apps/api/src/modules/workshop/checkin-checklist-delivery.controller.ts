@@ -106,3 +106,19 @@ export class DeliveryController {
     return this.service.linkSale(toRequestContext(user, req), deliveryId, saleId);
   }
 }
+
+/** Portaria — monitor de entrada de veículos (check-ins recentes, de todas as OS). */
+@ApiTags('workshop-portaria')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller('workshop/portaria')
+export class PortariaController {
+  constructor(private readonly service: CheckInService) {}
+
+  @Get('recent')
+  @RequirePermission('workshop', 'view')
+  @ApiOperation({ summary: 'Check-ins recentes de veículos, de todas as Ordens de Serviço' })
+  listRecent(@CurrentUser() user: AuthenticatedRequestUser) {
+    return this.service.listRecent(user.tenantId);
+  }
+}

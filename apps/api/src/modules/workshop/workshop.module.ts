@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { InventoryModule } from '@/modules/inventory/inventory.module';
 import { ServiceOrdersController } from './service-orders.controller';
-import { CheckInController, ChecklistController, DeliveryController } from './checkin-checklist-delivery.controller';
+import { CheckInController, ChecklistController, DeliveryController, PortariaController } from './checkin-checklist-delivery.controller';
 import { WorkshopAppointmentsController } from './workshop-appointments.controller';
 import { WarrantiesController, MechanicPanelController, PostSaleController } from './warranty-mechanic-postsale.controller';
 import { ServicesCatalogController, ServiceBoxesController, WorkshopAnalyticsController } from './services-catalog-boxes-analytics.controller';
@@ -29,6 +29,7 @@ import { WorkshopAnalyticsService } from './workshop-analytics.service';
   controllers: [
     ServiceOrdersController,
     CheckInController,
+    PortariaController,
     ChecklistController,
     DeliveryController,
     WorkshopAppointmentsController,

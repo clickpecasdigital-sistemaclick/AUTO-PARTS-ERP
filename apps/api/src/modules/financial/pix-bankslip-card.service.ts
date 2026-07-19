@@ -93,6 +93,15 @@ export class BankSlipService {
     return this.prisma.bankSlip.create({ data: { tenantId, bankAccountId, amount, dueDate: new Date(dueDate), receivableId, ourNumber } });
   }
 
+  list(tenantId: string) {
+    return this.prisma.bankSlip.findMany({
+      where: { tenantId },
+      include: { bankAccount: { select: { bankName: true } }, receivable: { select: { customer: { select: { name: true } } } } },
+      orderBy: { dueDate: 'desc' },
+      take: 200,
+    });
+  }
+
   getSlip(tenantId: string, id: string) {
     return this.prisma.bankSlip.findFirst({ where: { id, tenantId } });
   }

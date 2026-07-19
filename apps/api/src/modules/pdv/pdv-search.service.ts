@@ -65,6 +65,7 @@ export class PdvSearchService {
         unit: { select: { code: true } },
         category: { select: { name: true } },
         defaultLocation: { select: { fullAddress: true, level: true, position: true } },
+        photos: { where: { isPrimary: true }, select: { url: true }, take: 1 },
         stocks: { select: { warehouseId: true, quantityOnHand: true, quantityReserved: true } },
       },
       take: limit,

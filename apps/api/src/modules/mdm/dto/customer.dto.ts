@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 const emptyToUndefined = ({ value }: { value: unknown }) => (value === '' ? undefined : value);
 
@@ -63,8 +63,8 @@ export class QueryCustomerDto {
   @ApiPropertyOptional({ enum: CustomerTypeDto }) @IsOptional() @IsEnum(CustomerTypeDto) customerType?: CustomerTypeDto;
   @ApiPropertyOptional({ enum: CustomerStatusDto }) @IsOptional() @IsEnum(CustomerStatusDto) status?: CustomerStatusDto;
   @ApiPropertyOptional() @IsOptional() @IsString() creditStatus?: string;
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() page?: number = 1;
-  @ApiPropertyOptional({ default: 20 }) @IsOptional() perPage?: number = 20;
+  @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) page?: number = 1;
+  @ApiPropertyOptional({ default: 20 }) @IsOptional() @Type(() => Number) perPage?: number = 20;
 }
 
 export enum ContactKindDto {

@@ -65,6 +65,19 @@ export class ProductsController {
     return this.productsService.findAll(toRequestContext(user, req), query);
   }
 
+  @Get('promotions')
+  @RequirePermission('products', 'view')
+  @ApiOperation({ summary: 'Lista todas as promoções cadastradas (ativas e inativas)' })
+  listPromotions(@CurrentUser() user: AuthenticatedRequestUser) {
+    return this.productsService.listAllPromotions(user.tenantId);
+  }
+
+  @Post('promotions/:promotionId/deactivate')
+  @RequirePermission('products', 'update')
+  deactivatePromotion(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Param('promotionId') promotionId: string) {
+    return this.productsService.deactivatePromotion(toRequestContext(user, req), promotionId);
+  }
+
   @Get('export')
   @RequirePermission('products', 'export')
   @ApiOperation({ summary: 'Exporta o catálogo filtrado em CSV, Excel (xlsx) ou PDF' })

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import type { QueryProductDto } from './dto/query-product.dto';
@@ -212,6 +212,20 @@ export class ProductsRepository {
 
   async addPromotion(tenantId: string, productId: string, userId: string | null, data: object) {
     return this.prisma.productPromotion.create({ data: { ...data, tenantId, productId, createdBy: userId } as Prisma.ProductPromotionUncheckedCreateInput });
+  }
+
+  listAllPromotions(tenantId: string) {
+    return this.prisma.productPromotion.findMany({
+      where: { tenantId },
+      include: { product: { select: { id: true, internalCode: true, shortDescription: true, salePrice: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  async deactivatePromotion(tenantId: string, promotionId: string) {
+    const { count } = await this.prisma.productPromotion.updateMany({ where: { id: promotionId, tenantId }, data: { isActive: false } });
+    if (count === 0) throw new NotFoundException('Promoção não encontrada');
+    return this.prisma.productPromotion.findUnique({ where: { id: promotionId } });
   }
 
   // --- Histórico (auditoria) -------------------------------------------------

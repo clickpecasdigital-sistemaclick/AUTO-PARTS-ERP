@@ -23,6 +23,7 @@ import { SaasModule } from './modules/saas/saas.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { UsersModule } from './modules/users/users.module';
+import { AuditQueryModule } from './modules/audit/audit.module';
 import { SuperAdminModule } from './modules/superadmin/superadmin.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 
@@ -60,6 +61,7 @@ import { CopilotModule } from './modules/copilot/copilot.module';
     IntegrationsModule,
     WorkspaceModule,
     UsersModule,
+    AuditQueryModule,
     SuperAdminModule,
     CopilotModule,
   ],

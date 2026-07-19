@@ -1,11 +1,21 @@
 import { useState } from 'react';
-import { Award, Plus, ShoppingCart, Trophy } from 'lucide-react';
+import { Award, Plus, ShoppingCart, Trash2, Trophy } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { FormField } from '@/components/ui/form-field';
+import { Autocomplete } from '@/components/ui/autocomplete';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   Tabs,
   TabsContent,
@@ -14,8 +24,12 @@ import {
 } from '@/components/ui/tabs';
 import { formatCurrencyBRL } from '@/utils/formatters';
 import { usePermissions } from '@/hooks/usePermissions';
+import { useWorkspaceStore } from '@/stores/workspace.store';
+import { useSupplierOptions } from '@/modules/products/hooks/useCatalogs';
+import { useProducts } from '@/modules/products/hooks/useProducts';
 import {
   useAwardQuotation,
+  useCreateQuotation,
   useGenerateOrderFromQuotation,
   usePurchaseQuotations,
   useQuotationComparison,
@@ -30,6 +44,11 @@ const statusVariant: Record<PurchaseQuotationStatus, 'secondary' | 'warning' | '
   cancelled: 'destructive',
 };
 
+interface QuotationItemLine {
+  productId: string;
+  quantity: number;
+}
+
 /**
  * Cotação — lista + comparativo automático. O comparativo (briefing: "O
  * sistema deverá destacar automaticamente a melhor proposta") é a aba
@@ -43,6 +62,40 @@ export default function PurchaseQuotationsPage() {
   const { data: comparison, isLoading: comparisonLoading } = useQuotationComparison(selectedId ?? undefined);
   const awardQuotation = useAwardQuotation();
   const generateOrder = useGenerateOrderFromQuotation();
+  const activeBranchId = useWorkspaceStore((s) => s.activeBranchId);
+
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
+  const [items, setItems] = useState<QuotationItemLine[]>([{ productId: '', quantity: 1 }]);
+  const [deadline, setDeadline] = useState('');
+  const [notes, setNotes] = useState('');
+  const { data: supplierOptions } = useSupplierOptions();
+  const { data: productOptions } = useProducts({ page: 1, perPage: 100 });
+  const createQuotation = useCreateQuotation();
+
+  function toggleSupplier(id: string) {
+    setSelectedSupplierIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
+  }
+
+  function updateItem(index: number, patch: Partial<QuotationItemLine>) {
+    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  async function handleCreateQuotation() {
+    if (!activeBranchId || selectedSupplierIds.length === 0) return;
+    const validItems = items.filter((i) => i.productId && i.quantity > 0);
+    if (validItems.length === 0) return;
+
+    await createQuotation.mutateAsync({
+      branchId: activeBranchId,
+      payload: { supplierIds: selectedSupplierIds, items: validItems, deadline: deadline || undefined, notes: notes || undefined },
+    });
+    setIsCreateOpen(false);
+    setSelectedSupplierIds([]);
+    setItems([{ productId: '', quantity: 1 }]);
+    setDeadline('');
+    setNotes('');
+  }
 
   return (
     <div>
@@ -51,7 +104,7 @@ export default function PurchaseQuotationsPage() {
         description="Cotação multi-fornecedor com comparativo automático — preço, IPI, ICMS, frete, prazo, garantia e condição de pagamento."
         actions={
           can('purchases', 'create') && (
-            <Button>
+            <Button onClick={() => setIsCreateOpen(true)}>
               <Plus /> Nova cotação
             </Button>
           )
@@ -144,6 +197,78 @@ export default function PurchaseQuotationsPage() {
           </TabsContent>
         </Tabs>
       )}
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Nova cotação</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <FormField label="Fornecedores convidados" required>
+              <div className="flex flex-wrap gap-2 rounded-md border border-border p-2">
+                {(supplierOptions ?? []).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleSupplier(s.id)}
+                    className={`rounded-full border px-3 py-1 text-xs ${selectedSupplierIds.includes(s.id) ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                  >
+                    {s.name ?? s.code}
+                  </button>
+                ))}
+              </div>
+            </FormField>
+
+            <FormField label="Itens" required>
+              <div className="space-y-2">
+                {items.map((item, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <Autocomplete
+                        value={item.productId || null}
+                        onChange={(v) => updateItem(index, { productId: v ?? '' })}
+                        options={(productOptions?.data ?? []).map((p) => ({ value: p.id, label: `${p.internalCode} — ${p.shortDescription}` }))}
+                        placeholder="Buscar produto..."
+                      />
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      value={item.quantity}
+                      onChange={(e) => updateItem(index, { quantity: Number(e.target.value) })}
+                      className="w-24 font-numeric"
+                    />
+                    <Button type="button" variant="ghost" size="icon-sm" onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))} disabled={items.length === 1}>
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" onClick={() => setItems((prev) => [...prev, { productId: '', quantity: 1 }])}>
+                  <Plus className="size-3.5" /> Adicionar item
+                </Button>
+              </div>
+            </FormField>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Prazo para resposta">
+                <Input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+              </FormField>
+              <FormField label="Observações">
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+              </FormField>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleCreateQuotation}
+              isLoading={createQuotation.isPending}
+              disabled={!activeBranchId || selectedSupplierIds.length === 0 || !items.some((i) => i.productId)}
+            >
+              Criar cotação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

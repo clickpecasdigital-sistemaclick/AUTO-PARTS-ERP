@@ -46,6 +46,6 @@ export class CreatePurchaseRequestDto {
 export class QueryPurchaseRequestDto {
   @ApiPropertyOptional() @IsOptional() @IsString() status?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() departmentId?: string;
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() page?: number = 1;
-  @ApiPropertyOptional({ default: 20 }) @IsOptional() perPage?: number = 20;
+  @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) page?: number = 1;
+  @ApiPropertyOptional({ default: 20 }) @IsOptional() @Type(() => Number) perPage?: number = 20;
 }

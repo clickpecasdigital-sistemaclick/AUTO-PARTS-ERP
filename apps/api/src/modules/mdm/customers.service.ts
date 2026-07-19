@@ -102,6 +102,51 @@ export class CustomersService {
     return this.prisma.customerVehicle.update({ where: { id: vehicleId }, data: { deletedAt: new Date() } });
   }
 
+  /** Ficha do Veículo — listagem tenant-wide (briefing: busca por placa/chassi/cliente, não só por dentro do cadastro do cliente). */
+  async listVehicles(tenantId: string, search?: string) {
+    return this.prisma.customerVehicle.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(search?.trim()
+          ? {
+              OR: [
+                { plate: { contains: search, mode: 'insensitive' } },
+                { chassis: { contains: search, mode: 'insensitive' } },
+                { renavam: { contains: search, mode: 'insensitive' } },
+                { customer: { name: { contains: search, mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
+      },
+      include: { customer: { select: { id: true, name: true } }, vehicleVersion: { include: { model: { include: { make: true } } } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  /** Ficha completa — inclui histórico de OS (briefing: "Histórico" + integração com Oficina/Garantia). */
+  async getVehicleDetail(tenantId: string, vehicleId: string) {
+    const vehicle = await this.prisma.customerVehicle.findFirst({
+      where: { id: vehicleId, tenantId },
+      include: {
+        customer: { select: { id: true, name: true, phone: true, email: true } },
+        vehicleVersion: { include: { model: { include: { make: true } } } },
+        serviceOrders: { select: { id: true, code: true, status: true, openedAt: true, totalAmount: true }, orderBy: { openedAt: 'desc' }, take: 20 },
+      },
+    });
+    if (!vehicle) throw new NotFoundException('Veículo não encontrado');
+    return vehicle;
+  }
+
+  async updateVehicle(ctx: RequestContext, vehicleId: string, dto: Partial<CreateCustomerVehicleDto>) {
+    const before = await this.prisma.customerVehicle.findFirst({ where: { id: vehicleId, tenantId: ctx.tenantId } });
+    if (!before) throw new NotFoundException('Veículo não encontrado');
+    const updated = await this.prisma.customerVehicle.update({ where: { id: vehicleId }, data: dto as never });
+    await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'update', entity: 'CustomerVehicle', entityId: vehicleId, before, after: updated });
+    return updated;
+  }
+
   /** Aniversariantes do mês atual (ou informado) — Dashboard CRM. */
   getBirthdays(tenantId: string, month?: number) {
     return this.repository.findBirthdaysInMonth(tenantId, month ?? new Date().getMonth() + 1);

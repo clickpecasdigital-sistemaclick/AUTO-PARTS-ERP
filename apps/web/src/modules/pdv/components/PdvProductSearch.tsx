@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Search } from 'lucide-react';
+import { Package, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatCurrencyBRL } from '@/utils/formatters';
+import { useDebounce } from '@/hooks/useDebounce';
 import { useProductSearch } from '../hooks/usePdv';
 import type { ProductSearchResult } from '../types/pdv.types';
 
@@ -19,7 +20,8 @@ interface PdvProductSearchProps {
  */
 export function PdvProductSearch({ warehouseId, onSelect }: PdvProductSearchProps) {
   const [term, setTerm] = useState('');
-  const { data: results, isLoading } = useProductSearch(term);
+  const debouncedTerm = useDebounce(term, 300);
+  const { data: results, isLoading } = useProductSearch(debouncedTerm);
 
   function handleSelect(product: ProductSearchResult) {
     onSelect(product);
@@ -57,19 +59,28 @@ export function PdvProductSearch({ warehouseId, onSelect }: PdvProductSearchProp
                 <button
                   key={product.id}
                   onClick={() => handleSelect(product)}
-                  className="flex w-full items-center justify-between gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
+                  className="flex w-full items-center gap-3 border-b border-border px-3 py-2 text-left text-sm last:border-0 hover:bg-accent"
                 >
-                  <div>
-                    <p className="font-medium">{product.shortDescription}</p>
-                    <p className="font-numeric text-xs text-muted-foreground">
-                      {product.internalCode} {product.brand && `· ${product.brand.name}`}
-                      {available !== null && <span className={available <= 0 ? 'text-destructive' : ''}> · Disp: {available}</span>}
-                      {product.defaultLocation?.fullAddress && <span> · {product.defaultLocation.fullAddress}</span>}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-numeric font-medium">{formatCurrencyBRL(price)}</span>
-                    {margin !== null && <p className="font-numeric text-xs text-muted-foreground">Margem: {margin.toFixed(1)}%</p>}
+                  {product.photos[0]?.url ? (
+                    <img src={product.photos[0].url} alt={product.shortDescription} className="size-10 shrink-0 rounded-md border border-border object-cover" />
+                  ) : (
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
+                      <Package className="size-4" />
+                    </div>
+                  )}
+                  <div className="flex flex-1 items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{product.shortDescription}</p>
+                      <p className="font-numeric text-xs text-muted-foreground">
+                        {product.internalCode} {product.brand && `· ${product.brand.name}`}
+                        {available !== null && <span className={available <= 0 ? 'text-destructive' : ''}> · Disp: {available}</span>}
+                        {product.defaultLocation?.fullAddress && <span> · {product.defaultLocation.fullAddress}</span>}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-numeric font-medium">{formatCurrencyBRL(price)}</span>
+                      {margin !== null && <p className="font-numeric text-xs text-muted-foreground">Margem: {margin.toFixed(1)}%</p>}
+                    </div>
                   </div>
                 </button>
               );

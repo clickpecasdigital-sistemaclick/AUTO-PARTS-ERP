@@ -46,6 +46,12 @@ export class PixController {
 export class BankSlipController {
   constructor(private readonly service: BankSlipService) {}
 
+  @Get()
+  @RequirePermission('financial', 'view')
+  list(@CurrentUser() user: AuthenticatedRequestUser) {
+    return this.service.list(user.tenantId);
+  }
+
   @Post()
   @RequirePermission('financial', 'create')
   register(

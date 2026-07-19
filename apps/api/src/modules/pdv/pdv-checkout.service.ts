@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/database/prisma/prisma.service';
 import { StockService } from '@/modules/inventory/stock.service';
 import { AuditService } from '@/common/audit/audit.service';
+import { FiscalIssuanceService } from '@/modules/fiscal/fiscal-issuance.service';
 import { CART_INCLUDE } from './pdv-cart.repository';
 import type { CheckoutCartDto } from './dto/cart.dto';
 import type { RequestContext } from '@/common/types/request-context';
@@ -23,10 +24,13 @@ const CREDIT_PAYMENT_KINDS = ['bank_slip', 'in_house_installment'];
  */
 @Injectable()
 export class PdvCheckoutService {
+  private readonly logger = new Logger(PdvCheckoutService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly stockService: StockService,
     private readonly audit: AuditService,
+    private readonly fiscalIssuance: FiscalIssuanceService,
   ) {}
 
   async checkout(ctx: RequestContext, saleId: string, dto: CheckoutCartDto) {
@@ -86,6 +90,31 @@ export class PdvCheckoutService {
     const finalized = await this.prisma.sale.update({ where: { id: saleId }, data: { status, notes: dto.notes }, include: CART_INCLUDE });
 
     await this.audit.log({ tenantId: ctx.tenantId, userId: ctx.userId, action: 'update', entity: 'Sale', entityId: saleId, after: { status, totalAmount: total, paymentTotal } });
+
+    // NFC-e automática (briefing: "quando finalizar uma venda, gerar
+    // automaticamente NF-e/DANFE"). Só roda se o branch já tiver
+    // Configuração Fiscal — sem isso, `getFiscalConfig` lançaria e
+    // quebraria TODA venda; como a maioria dos tenants ainda não
+    // configurou o fiscal, isso precisa ser silencioso (loga e segue).
+    if (cart.mode !== 'future_sale') {
+      try {
+        await this.fiscalIssuance.issueNfce(
+          ctx,
+          cart.branchId,
+          saleId,
+          cart.items.map((item) => ({
+            productId: item.productId,
+            cfopCode: '5102',
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            discountAmount: Number(item.discountAmount ?? 0),
+          })),
+        );
+      } catch (error) {
+        this.logger.warn(`NFC-e automática não gerada para a venda ${cart.code}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+
     return finalized;
   }
 

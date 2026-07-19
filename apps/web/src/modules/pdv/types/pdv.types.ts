@@ -68,6 +68,7 @@ export interface ProductSearchResult {
   unit: { code: string };
   category?: { name: string } | null;
   defaultLocation?: { fullAddress: string | null; level: string; position: string } | null;
+  photos: { url: string }[];
   stocks: { warehouseId: string; quantityOnHand: string; quantityReserved: string }[];
 }
 

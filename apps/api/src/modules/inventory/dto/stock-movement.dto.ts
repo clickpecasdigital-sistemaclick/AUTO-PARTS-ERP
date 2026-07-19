@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 /** Espelha `StockMovementType` do Prisma (Sprint 02 + extensões da Sprint 06). */
 export enum StockMovementTypeDto {
@@ -52,6 +53,6 @@ export class QueryStockMovementDto {
   @ApiPropertyOptional({ enum: StockMovementTypeDto }) @IsOptional() @IsEnum(StockMovementTypeDto) type?: StockMovementTypeDto;
   @ApiPropertyOptional() @IsOptional() @IsString() startDate?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() endDate?: string;
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() page?: number = 1;
-  @ApiPropertyOptional({ default: 20 }) @IsOptional() perPage?: number = 20;
+  @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) page?: number = 1;
+  @ApiPropertyOptional({ default: 20 }) @IsOptional() @Type(() => Number) perPage?: number = 20;
 }

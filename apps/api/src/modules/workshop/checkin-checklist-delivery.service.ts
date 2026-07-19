@@ -32,6 +32,25 @@ export class CheckInService {
     return this.prisma.serviceOrderCheckIn.findFirst({ where: { serviceOrderId, tenantId } });
   }
 
+  /** Portaria — todos os check-ins recentes, independente da OS, pra monitorar entrada/saída de veículos na oficina. */
+  listRecent(tenantId: string, limit = 50) {
+    return this.prisma.serviceOrderCheckIn.findMany({
+      where: { tenantId },
+      include: {
+        serviceOrder: {
+          select: {
+            code: true,
+            status: true,
+            customer: { select: { name: true } },
+            vehicle: { select: { plate: true } },
+          },
+        },
+      },
+      orderBy: { checkedInAt: 'desc' },
+      take: limit,
+    });
+  }
+
   /** Anexa foto/vídeo do check-in — reaproveita `Attachment` genérico (Sprint 08), entity="service_order_checkin". */
   listAttachments(tenantId: string, serviceOrderId: string) {
     return this.prisma.attachment.findMany({ where: { tenantId, entity: 'service_order_checkin', entityId: serviceOrderId }, orderBy: { createdAt: 'desc' } });

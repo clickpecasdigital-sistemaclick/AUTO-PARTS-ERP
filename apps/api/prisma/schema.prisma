@@ -209,6 +209,7 @@ model Branch {
   fiscalSeries      FiscalSeries[]
   fiscalInvoices    FiscalInvoice[]
   appointments      Appointment[]
+  lostSales         LostSale[]
 
   @@unique([companyId, code])
   @@index([tenantId])
@@ -497,6 +498,7 @@ model Customer {
   appointments     Appointment[]
   fiscalInvoices   FiscalInvoice[]
   creditEvents     CustomerCreditEvent[]
+  lostSales        LostSale[]
   consents         DataConsent[]
   opportunities    CrmOpportunity[]
   supportTickets   SupportTicket[]
@@ -1262,6 +1264,7 @@ model Product {
   crossReferencesFrom ProductCrossReference[]      @relation("ProductCrossRefSource")
   crossReferencesTo   ProductCrossReference[]      @relation("ProductCrossRefTarget")
   promotions          ProductPromotion[]
+  lostSales           LostSale[]
   stocks              Stock[]
   stockByLocation     StockByLocation[]
   stockReservations   StockReservation[]
@@ -6141,4 +6144,41 @@ model MercadoLivreIntegration {
 
   @@index([tenantId])
   @@map("mercado_livre_integrations")
+}
+
+enum LostSaleReason {
+  out_of_stock       // sem estoque
+  price_too_high     // preço acima do que o cliente aceitava pagar
+  product_not_found  // não trabalhamos com esse produto
+  customer_gave_up   // cliente desistiu da compra
+  lost_to_competitor // comprou com concorrente
+  other
+}
+
+/// Venda Perdida — registro de uma oportunidade de venda que não se
+/// concretizou (briefing: "finalizar módulo Vendas Perdidas"). Alimenta
+/// decisão de compra (produtos frequentemente pedidos e sem estoque) e
+/// análise comercial (preço/concorrência). Pode ou não estar ligada a um
+/// produto/cliente específico do cadastro — às vezes é uma peça que nem
+/// existe no catálogo ainda.
+model LostSale {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  branchId            String          @map("branch_id") @db.Uuid
+  customerId          String?         @map("customer_id") @db.Uuid
+  productId           String?         @map("product_id") @db.Uuid
+  productDescription  String?         @map("product_description") // usado quando productId é nulo (produto fora do catálogo)
+  reason              LostSaleReason
+  estimatedValue       Decimal?       @map("estimated_value") @db.Decimal(15, 2)
+  notes               String?
+  createdBy           String?         @map("created_by") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at")
+
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, reason])
+  @@map("lost_sales")
 }

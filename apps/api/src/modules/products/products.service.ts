@@ -300,6 +300,14 @@ export class ProductsService {
     });
   }
 
+  listAllPromotions(tenantId: string) {
+    return this.repository.listAllPromotions(tenantId);
+  }
+
+  async deactivatePromotion(ctx: RequestContext, promotionId: string) {
+    return this.repository.deactivatePromotion(ctx.tenantId, promotionId);
+  }
+
   // --- Histórico --------------------------------------------------------------
 
   async getHistory(ctx: RequestContext, productId: string) {

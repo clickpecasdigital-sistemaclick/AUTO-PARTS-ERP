@@ -105,6 +105,26 @@ export class CustomersController {
     return this.service.addVehicle(toRequestContext(user, req), id, dto);
   }
 
+  @Get('vehicles/all')
+  @RequirePermission('customers', 'view')
+  @ApiOperation({ summary: 'Ficha do Veículo — busca tenant-wide por placa/chassi/renavam/cliente' })
+  listVehicles(@CurrentUser() user: AuthenticatedRequestUser, @Query('search') search?: string) {
+    return this.service.listVehicles(user.tenantId, search);
+  }
+
+  @Get('vehicles/:vehicleId')
+  @RequirePermission('customers', 'view')
+  @ApiOperation({ summary: 'Ficha completa do veículo — inclui histórico de OS' })
+  getVehicle(@CurrentUser() user: AuthenticatedRequestUser, @Param('vehicleId') vehicleId: string) {
+    return this.service.getVehicleDetail(user.tenantId, vehicleId);
+  }
+
+  @Put('vehicles/:vehicleId')
+  @RequirePermission('customers', 'update')
+  updateVehicle(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Param('vehicleId') vehicleId: string, @Body() dto: CreateCustomerVehicleDto) {
+    return this.service.updateVehicle(toRequestContext(user, req), vehicleId, dto);
+  }
+
   @Delete('vehicles/:vehicleId')
   @RequirePermission('customers', 'update')
   removeVehicle(@CurrentUser() user: AuthenticatedRequestUser, @Req() req: Request, @Param('vehicleId') vehicleId: string) {

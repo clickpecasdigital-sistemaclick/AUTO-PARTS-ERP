@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { InventoryModule } from '@/modules/inventory/inventory.module';
+import { FiscalModule } from '@/modules/fiscal/fiscal.module';
 import { PdvCartController } from './pdv-cart.controller';
 import { PdvSearchController } from './pdv-search.controller';
 import { PdvQuotesController } from './pdv-quotes.controller';
@@ -27,7 +28,7 @@ import { PdvPrintService } from './pdv-print.service';
  * — toda baixa/reserva de estoque do PDV passa por eles, nunca duplicada.
  */
 @Module({
-  imports: [InventoryModule],
+  imports: [InventoryModule, FiscalModule],
   controllers: [
     PdvCartController,
     PdvSearchController,
